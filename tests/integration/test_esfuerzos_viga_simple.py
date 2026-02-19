@@ -325,6 +325,72 @@ def test_axil_en_barra_horizontal():
     print("✓ Test axil en barra horizontal: PASSED")
 
 
+def test_voladizo_carga_distribuida_uniforme():
+    """
+    Test: Voladizo (empotrado en A, libre en B) con carga uniforme q.
+
+    Geometria:
+        A============B
+        |  q↓↓↓↓↓↓↓
+        0           L=3m
+
+    Carga: q = 4 kN/m uniforme en toda la longitud
+
+    Soluciones teoricas (con TERNA Y+ abajo):
+        Ra = q*L = 12 kN hacia arriba → Ry_i = -12 kN
+        Ma = q*L^2/2 = 18 kNm antihorario → Mz_i = -18 kNm
+
+        M(x) = -18 + 12*x - 2*x^2   (mirar izquierda)
+        M(0) = -18 kNm
+        M(1.5) = -18 + 18 - 4.5 = -4.5 kNm
+        M(3) = 0 (extremo libre)
+    """
+    modelo = ModeloEstructural("Voladizo carga distribuida")
+    acero = Material("Acero", E=200e6)
+    seccion = SeccionRectangular("Rect 20x30", b=0.20, _h=0.30)
+
+    n1 = modelo.agregar_nudo(0, 0, "A")
+    n2 = modelo.agregar_nudo(3, 0, "B")
+    barra = modelo.agregar_barra(n1, n2, acero, seccion)
+
+    n1.vinculo = Empotramiento(nudo=n1)
+    # B libre (voladizo)
+
+    carga = CargaDistribuida(
+        barra=barra,
+        q1=4.0,
+        q2=4.0,
+        x1=0.0,
+        x2=3.0,
+        angulo=90.0  # Hacia abajo
+    )
+    modelo.agregar_carga(carga)
+
+    reacciones = resolver_reacciones_isostatica(modelo.nudos, modelo.barras, modelo.cargas)
+    Ra = reacciones[n1.id]
+
+    # Reaccion vertical: 12 kN hacia arriba = -12 en TERNA
+    assert abs(Ra[1] + 12.0) < 0.1, f"Ry esperado -12 kN, obtenido {Ra[1]:.3f}"
+    # Momento de empotramiento: q*L^2/2 = 18 kNm
+    assert abs(abs(Ra[2]) - 18.0) < 0.1, f"|Ma| esperado 18 kNm, obtenido {abs(Ra[2]):.3f}"
+
+    cargas_barra = [c for c in modelo.cargas if hasattr(c, 'barra') and c.barra.id == barra.id]
+    diagrama = calcular_esfuerzos_viga_isostatica(
+        barra, cargas_barra, reaccion_i=Ra, reaccion_j=(0.0, 0.0, 0.0)
+    )
+
+    # M(0) = momento de empotramiento
+    assert abs(abs(diagrama.M(0.0)) - 18.0) < 0.1, f"|M(0)| esperado 18 kNm, obtenido {abs(diagrama.M(0.0)):.3f}"
+    # M(3) = 0 (extremo libre)
+    assert abs(diagrama.M(3.0)) < 0.1, f"M(L) debe ser ~0, obtenido {diagrama.M(3.0):.3f}"
+    # M(1.5) = -4.5 kNm
+    assert abs(abs(diagrama.M(1.5)) - 4.5) < 0.1, f"|M(1.5)| esperado 4.5 kNm, obtenido {abs(diagrama.M(1.5)):.3f}"
+    # V(0) = Ra = 12 kN
+    assert abs(abs(diagrama.V(0.0)) - 12.0) < 0.1, f"|V(0)| esperado 12 kN, obtenido {abs(diagrama.V(0.0)):.3f}"
+    # V(L) = 0 (extremo libre)
+    assert abs(diagrama.V(3.0)) < 0.1, f"V(L) debe ser ~0, obtenido {diagrama.V(3.0):.3f}"
+
+
 def test_viga_simple_carga_triangular():
     """
     Test: Viga simplemente apoyada con carga triangular (q1=0, q2=q_max).
