@@ -515,16 +515,30 @@ class GeneradorSubestructuras:
 
     def _resolver_aproximado(self) -> Dict[int, tuple]:
         """
-        Resuelve reacciones de forma aproximada cuando el método exacto falla.
+        Se llama cuando el solver isostático falla al resolver las reacciones.
 
-        Returns:
-            Diccionario de reacciones aproximadas
+        En el Método de las Fuerzas, un fallo del solver isostático indica que
+        la subestructura generada NO es isostática o está mal condicionada, lo
+        que apunta a un error en la selección de redundantes o en la geometría.
+        Devolver ceros silenciosamente produciría coeficientes de flexibilidad
+        incorrectos y una solución del SECE completamente errónea.
+
+        Raises:
+            ValueError: Siempre, con diagnóstico del fallo.
         """
-        # Aproximación simple: distribuir cargas entre apoyos
-        reacciones = {}
+        # Recopilar información de diagnóstico
+        nudos_con_vinculo = [n for n in self.nudos if n.tiene_vinculo]
+        n_vinculos = sum(
+            len(n.vinculo.gdl_restringidos()) for n in nudos_con_vinculo
+        )
+        n_nudos = len(self.nudos)
+        gh_subestructura = n_vinculos - 3 * n_nudos + 3 * (n_nudos - len(self.barras) + 1 - 1)
 
-        for nudo in self.nudos:
-            if nudo.tiene_vinculo:
-                reacciones[nudo.id] = (0.0, 0.0, 0.0)
-
-        return reacciones
+        raise ValueError(
+            f"No se pudo resolver la subestructura generada.\n"
+            f"  - Nudos con vínculo: {len(nudos_con_vinculo)}\n"
+            f"  - GDL restringidos totales: {n_vinculos}\n"
+            f"  - Nudos totales: {n_nudos}\n"
+            f"Causa probable: la subestructura no es isostática o tiene "
+            f"inestabilidad geométrica. Verifique la selección de redundantes."
+        )

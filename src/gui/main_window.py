@@ -34,6 +34,7 @@ from src.gui.dialogs import (
     CargaDistribuidaDialog,
     RedundantesDialog,
 )
+from src.gui.history import UndoRedoManager
 
 
 class MainWindow(QMainWindow):
@@ -55,9 +56,21 @@ class MainWindow(QMainWindow):
         # Modelo estructural actual
         self.modelo = ModeloEstructural("Nuevo proyecto")
 
+        # Ruta del archivo actualmente abierto (None = sin guardar)
+        self._ruta_archivo: str | None = None
+
         # Configurar ventana
         self._setup_window()
         self._setup_menus()
+
+        # Gestor de Deshacer/Rehacer (debe crearse DESPUÉS de _setup_menus para
+        # que self.action_deshacer y self.action_rehacer ya existan)
+        self._undo_manager = UndoRedoManager(
+            max_historial=50,
+            puede_deshacer_changed=self.action_deshacer.setEnabled,
+            puede_rehacer_changed=self.action_rehacer.setEnabled,
+        )
+
         self._setup_toolbar()
         self._setup_central_widget()
         self._setup_dock_widgets()
@@ -119,15 +132,17 @@ class MainWindow(QMainWindow):
         # ===== Menú Edición =====
         menu_edicion = menubar.addMenu("&Edición")
 
-        action_deshacer = QAction("&Deshacer", self)
-        action_deshacer.setShortcut(QKeySequence.StandardKey.Undo)
-        action_deshacer.setEnabled(False)  # TODO: implementar
-        menu_edicion.addAction(action_deshacer)
+        self.action_deshacer = QAction("&Deshacer", self)
+        self.action_deshacer.setShortcut(QKeySequence.StandardKey.Undo)
+        self.action_deshacer.setEnabled(False)
+        self.action_deshacer.triggered.connect(self._on_deshacer)
+        menu_edicion.addAction(self.action_deshacer)
 
-        action_rehacer = QAction("&Rehacer", self)
-        action_rehacer.setShortcut(QKeySequence.StandardKey.Redo)
-        action_rehacer.setEnabled(False)
-        menu_edicion.addAction(action_rehacer)
+        self.action_rehacer = QAction("&Rehacer", self)
+        self.action_rehacer.setShortcut(QKeySequence.StandardKey.Redo)
+        self.action_rehacer.setEnabled(False)
+        self.action_rehacer.triggered.connect(self._on_rehacer)
+        menu_edicion.addAction(self.action_rehacer)
 
         menu_edicion.addSeparator()
 
@@ -302,6 +317,10 @@ class MainWindow(QMainWindow):
         self.canvas = StructureCanvas(self.modelo)
         self.canvas.selection_changed.connect(self._on_selection_changed)
         self.canvas.model_changed.connect(self._on_model_changed)
+
+        # Conectar callback de undo: el canvas llama a esto ANTES de cada mutación
+        self.canvas.set_undo_callback(self._guardar_snapshot_undo)
+
         self.setCentralWidget(self.canvas)
 
     def _setup_dock_widgets(self):
@@ -356,7 +375,12 @@ class MainWindow(QMainWindow):
     def _update_title(self):
         """Actualiza el título de la ventana."""
         modificado = "*" if self.modelo.esta_modificado else ""
-        self.setWindowTitle(f"{self.modelo.nombre}{modificado} - Análisis Estructural")
+        if self._ruta_archivo:
+            from pathlib import Path
+            nombre_archivo = Path(self._ruta_archivo).name
+            self.setWindowTitle(f"{nombre_archivo}{modificado} - Análisis Estructural")
+        else:
+            self.setWindowTitle(f"{self.modelo.nombre}{modificado} - Análisis Estructural")
 
     def _update_statusbar(self):
         """Actualiza la información en la barra de estado."""
@@ -364,6 +388,58 @@ class MainWindow(QMainWindow):
         self.label_elementos.setText(
             f"Nudos: {self.modelo.num_nudos}  Barras: {self.modelo.num_barras}"
         )
+
+    # =========================================================================
+    # Undo / Redo
+    # =========================================================================
+
+    def _guardar_snapshot_undo(self) -> None:
+        """
+        Guarda el estado actual del modelo en la pila de deshacer.
+
+        Se llama:
+        - Desde el canvas, a través del callback, ANTES de cada mutación
+          que el canvas realiza directamente (crear nudo, crear barra, borrar,
+          eliminar carga).
+        - Explícitamente desde los métodos de MainWindow que mutan el modelo
+          (asignar vínculo, agregar carga, aplicar propiedades).
+        """
+        try:
+            self._undo_manager.guardar_estado(self.modelo)
+        except Exception:
+            pass  # No interrumpir la operación si el snapshot falla
+
+    def _on_deshacer(self) -> None:
+        """Deshace la última acción restaurando el modelo al estado previo."""
+        modelo_restaurado = self._undo_manager.deshacer()
+        if modelo_restaurado is None:
+            return
+
+        self.modelo = modelo_restaurado
+        self._aplicar_modelo_restaurado()
+        self.statusbar.showMessage("Accion deshecha", 2000)
+
+    def _on_rehacer(self) -> None:
+        """Rehace la última acción deshecha."""
+        modelo_restaurado = self._undo_manager.rehacer()
+        if modelo_restaurado is None:
+            return
+
+        self.modelo = modelo_restaurado
+        self._aplicar_modelo_restaurado()
+        self.statusbar.showMessage("Accion rehecha", 2000)
+
+    def _aplicar_modelo_restaurado(self) -> None:
+        """
+        Actualiza todos los componentes de la UI para reflejar un modelo
+        recién restaurado (tras deshacer o rehacer).
+        """
+        self.canvas.set_model(self.modelo)
+        self.properties_panel.set_canvas(self.canvas)
+        self.results_panel.limpiar()
+        self._update_title()
+        self._update_statusbar()
+        self._refresh_canvas()
 
     # =========================================================================
     # SLOTS - Vínculos
@@ -376,6 +452,8 @@ class MainWindow(QMainWindow):
         if not selected_nodes:
             self.statusbar.showMessage("Seleccione un nudo primero", 3000)
             return
+
+        self._guardar_snapshot_undo()
 
         for nudo_id in selected_nodes:
             nudo = self.modelo.obtener_nudo(nudo_id)
@@ -427,6 +505,7 @@ class MainWindow(QMainWindow):
 
         if dialog.exec():
             if dialog.carga_creada:
+                self._guardar_snapshot_undo()
                 self.modelo.agregar_carga(dialog.carga_creada)
                 self._on_model_changed()
                 self._refresh_canvas()
@@ -449,6 +528,7 @@ class MainWindow(QMainWindow):
 
         if dialog.exec():
             if dialog.carga_creada:
+                self._guardar_snapshot_undo()
                 self.modelo.agregar_carga(dialog.carga_creada)
                 self._on_model_changed()
                 self._refresh_canvas()
@@ -471,6 +551,7 @@ class MainWindow(QMainWindow):
 
         if dialog.exec():
             if dialog.carga_creada:
+                self._guardar_snapshot_undo()
                 self.modelo.agregar_carga(dialog.carga_creada)
                 self._on_model_changed()
                 self._refresh_canvas()
@@ -507,6 +588,8 @@ class MainWindow(QMainWindow):
         if not nudo:
             return
 
+        self._guardar_snapshot_undo()
+
         if tipo_vinculo is None:
             # Remover vínculo
             nudo.vinculo = None
@@ -527,6 +610,8 @@ class MainWindow(QMainWindow):
         """Aplica los cambios de propiedades al elemento seleccionado."""
         if not self.properties_panel._selected_items:
             return
+
+        self._guardar_snapshot_undo()
 
         tipo, id_ = self.properties_panel._selected_items[0]
 
@@ -583,48 +668,106 @@ class MainWindow(QMainWindow):
                 return
 
         self.modelo = ModeloEstructural("Nuevo proyecto")
+        self._ruta_archivo = None
+        self._undo_manager.limpiar()
         self.canvas.set_model(self.modelo)
         self.properties_panel.set_canvas(self.canvas)
+        self.results_panel.limpiar()
         self._update_title()
         self._update_statusbar()
         self._refresh_canvas()
         self.statusbar.showMessage("Nuevo proyecto creado", 3000)
 
     def _on_abrir(self):
-        """Abre un proyecto existente."""
+        """Abre un proyecto existente desde un archivo JSON."""
         filename, _ = QFileDialog.getOpenFileName(
             self,
             "Abrir proyecto",
             "",
             "Proyectos (*.json);;Todos los archivos (*)"
         )
-        if filename:
-            # TODO: implementar carga de archivo
-            self.statusbar.showMessage(f"Abrir: {filename}", 3000)
+        if not filename:
+            return
+
+        try:
+            from src.data.proyecto_serializer import cargar_proyecto
+            nuevo_modelo = cargar_proyecto(filename)
+            self.modelo = nuevo_modelo
+            self._ruta_archivo = filename
+            self._undo_manager.limpiar()
+            self.canvas.set_model(self.modelo)
+            self.properties_panel.set_canvas(self.canvas)
+            self.results_panel.limpiar()
+            self._update_title()
+            self._update_statusbar()
+            self._refresh_canvas()
+            self.statusbar.showMessage(f"Proyecto cargado: {filename}", 5000)
+        except Exception as e:
+            QMessageBox.critical(
+                self, "Error al abrir",
+                f"No se pudo cargar el proyecto:\n\n{e}"
+            )
 
     def _on_guardar(self):
-        """Guarda el proyecto actual."""
-        # TODO: implementar guardado
-        self.modelo.marcar_guardado()
-        self._update_title()
-        self.statusbar.showMessage("Proyecto guardado", 3000)
+        """Guarda el proyecto actual (usa la ruta conocida o pide una nueva)."""
+        if self._ruta_archivo:
+            self._guardar_en(self._ruta_archivo)
+        else:
+            self._on_guardar_como()
 
     def _on_guardar_como(self):
         """Guarda el proyecto con un nuevo nombre."""
         filename, _ = QFileDialog.getSaveFileName(
             self,
             "Guardar proyecto como",
-            "",
+            self.modelo.nombre + ".json",
             "Proyectos (*.json)"
         )
         if filename:
-            # TODO: implementar guardado
+            self._guardar_en(filename)
+
+    def _guardar_en(self, filename: str) -> None:
+        """Realiza el guardado efectivo en la ruta indicada."""
+        try:
+            from src.data.proyecto_serializer import guardar_proyecto
+            guardar_proyecto(self.modelo, filename)
+            self._ruta_archivo = filename
+            self.modelo.marcar_guardado()
+            self._update_title()
             self.statusbar.showMessage(f"Guardado: {filename}", 3000)
+        except Exception as e:
+            QMessageBox.critical(
+                self, "Error al guardar",
+                f"No se pudo guardar el proyecto:\n\n{e}"
+            )
 
     def _on_exportar(self):
-        """Exporta los resultados."""
-        # TODO: implementar exportación
-        self.statusbar.showMessage("Exportar resultados...", 3000)
+        """Exporta la vista actual del canvas como imagen PNG."""
+        filename, _ = QFileDialog.getSaveFileName(
+            self,
+            "Exportar imagen",
+            self.modelo.nombre + ".png",
+            "Imágenes PNG (*.png);;Imágenes JPEG (*.jpg)"
+        )
+        if not filename:
+            return
+
+        try:
+            from PyQt6.QtGui import QPixmap
+            # Capturar el canvas completo como pixmap
+            pixmap = self.canvas.grab()
+            if pixmap.save(filename):
+                self.statusbar.showMessage(f"Exportado: {filename}", 3000)
+            else:
+                QMessageBox.warning(
+                    self, "Error al exportar",
+                    "No se pudo guardar la imagen."
+                )
+        except Exception as e:
+            QMessageBox.critical(
+                self, "Error al exportar",
+                f"Error inesperado al exportar:\n\n{e}"
+            )
 
     def _on_eliminar(self):
         """Elimina los elementos seleccionados."""
@@ -789,8 +932,8 @@ class MainWindow(QMainWindow):
             resultado = motor.resolver()
 
             if resultado.exitoso:
-                # Actualizar panel de resultados
-                self.results_panel.mostrar_resultado(resultado)
+                # Actualizar panel de resultados (pasar modelo para equilibrio correcto)
+                self.results_panel.mostrar_resultado(resultado, modelo=self.modelo)
 
                 # Actualizar canvas con diagramas
                 if hasattr(self.canvas, 'set_resultado'):

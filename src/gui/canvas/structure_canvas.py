@@ -87,6 +87,12 @@ class StructureCanvas(QGraphicsView):
         self._show_grid = True
         self._show_diagrams = False
 
+        # Opciones de diagramas
+        self._show_diagrama_M = True   # Mostrar diagrama de momentos
+        self._show_diagrama_V = True   # Mostrar diagrama de cortantes
+        self._show_diagrama_N = True   # Mostrar diagrama de axiles
+        self._escala_diagramas: float | None = None  # None = auto
+
         # Configuración de grilla
         self._grid_size = 1.0  # metros
         self._snap_enabled = True  # Snap to grid activado
@@ -104,6 +110,9 @@ class StructureCanvas(QGraphicsView):
 
         # Escala: píxeles por metro
         self._scale = 50.0
+
+        # Callback opcional para Undo/Redo: se llama ANTES de cada mutación
+        self._undo_callback = None  # Callable[[], None]
 
         # Configurar escena inicial
         self._setup_scene()
@@ -165,6 +174,27 @@ class StructureCanvas(QGraphicsView):
             self.setCursor(Qt.CursorShape.CrossCursor)
         elif mode == "create_bar":
             self.setCursor(Qt.CursorShape.CrossCursor)
+
+    def set_undo_callback(self, callback) -> None:
+        """
+        Registra un callback que se llama ANTES de cada mutación del modelo.
+
+        El callback recibe el modelo actual y debe guardar un snapshot.
+        Uso típico: conectar al UndoRedoManager.guardar_estado.
+
+        Args:
+            callback: Callable que recibe el modelo, p.ej.
+                      ``lambda: manager.guardar_estado(self.modelo)``
+        """
+        self._undo_callback = callback
+
+    def _guardar_snapshot_undo(self) -> None:
+        """Llama al callback de undo si está registrado (antes de mutar)."""
+        if self._undo_callback is not None:
+            try:
+                self._undo_callback()
+            except Exception:
+                pass  # No interrumpir la operación si el snapshot falla
 
     def set_grid_visible(self, visible: bool):
         """Muestra u oculta la grilla."""
@@ -964,46 +994,134 @@ class StructureCanvas(QGraphicsView):
         painter.drawLine(pos, h1)
         painter.drawLine(pos, h2)
 
+    def set_escala_diagramas(self, escala: float | None) -> None:
+        """
+        Establece la escala de los diagramas de esfuerzos.
+
+        Args:
+            escala: Factor de escala (metros por unidad de esfuerzo).
+                    None = ajuste automático según el máximo de la estructura.
+        """
+        self._escala_diagramas = escala
+        self.viewport().update()
+
+    def _calcular_escala_auto(self) -> float:
+        """
+        Calcula una escala automática para que el diagrama más grande
+        ocupe aproximadamente un 20 % de la longitud media de las barras.
+        """
+        if not self._resultado or not self.modelo.barras:
+            return 0.1
+
+        valor_max = 1e-10  # Evitar división por cero
+        for barra in self.modelo.barras:
+            diagrama = self._resultado.diagramas_finales.get(barra.id)
+            if diagrama is None:
+                continue
+            n_pts = 11
+            for k in range(n_pts):
+                x = k * barra.L / (n_pts - 1)
+                valor_max = max(valor_max, abs(diagrama.M(x)), abs(diagrama.V(x)), abs(diagrama.N(x)))
+
+        L_media = sum(b.L for b in self.modelo.barras) / len(self.modelo.barras)
+        escala = 0.2 * L_media / valor_max
+        return escala
+
+    def _draw_diagrama_componente(
+        self,
+        painter: QPainter,
+        barra,
+        diagrama,
+        get_valor,  # callable(x) -> float
+        escala: float,
+        color: QColor,
+    ):
+        """
+        Dibuja un diagrama de esfuerzos (M, V o N) sobre una barra.
+
+        Desplaza cada punto perpendicularmente a la barra según el valor del esfuerzo.
+        Llena el área entre la línea de esfuerzo y la barra con color semitransparente.
+        """
+        import math
+        from PyQt6.QtCore import QPointF
+        from PyQt6.QtGui import QPolygonF
+
+        n_puntos = 21
+        pts_offset: list[QPointF] = []
+        pts_barra: list[QPointF] = []
+
+        ang = barra.angulo + math.pi / 2  # Dirección perpendicular
+
+        for k in range(n_puntos):
+            x_local = k * barra.L / (n_puntos - 1)
+            valor = get_valor(x_local)
+
+            t = x_local / barra.L
+            x_w = barra.nudo_i.x + t * (barra.nudo_j.x - barra.nudo_i.x)
+            y_w = barra.nudo_i.y + t * (barra.nudo_j.y - barra.nudo_i.y)
+
+            x_off = valor * escala * math.cos(ang)
+            y_off = valor * escala * math.sin(ang)
+
+            pts_offset.append(self._world_to_scene(x_w + x_off, y_w + y_off))
+            pts_barra.append(self._world_to_scene(x_w, y_w))
+
+        # Área rellena semitransparente
+        color_fill = QColor(color)
+        color_fill.setAlpha(40)
+        polygon_pts = pts_offset + list(reversed(pts_barra))
+        polygon = QPolygonF(polygon_pts)
+        painter.setBrush(QBrush(color_fill))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawPolygon(polygon)
+
+        # Línea del diagrama
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(color, 1.5))
+        for k in range(len(pts_offset) - 1):
+            painter.drawLine(pts_offset[k], pts_offset[k + 1])
+
+        # Línea de referencia (eje de la barra) en gris punteado
+        painter.setPen(QPen(QColor(150, 150, 150), 0.5, Qt.PenStyle.DashLine))
+        for k in range(len(pts_barra) - 1):
+            painter.drawLine(pts_barra[k], pts_barra[k + 1])
+
     def _draw_diagramas(self, painter: QPainter):
-        """Dibuja los diagramas de esfuerzos."""
+        """Dibuja los diagramas de esfuerzos N, V y M sobre cada barra."""
         if not self._resultado:
             return
 
-        painter.setPen(QPen(self.COLOR_MOMENTO, 1.5))
+        # Determinar escala
+        escala = self._escala_diagramas if self._escala_diagramas is not None \
+            else self._calcular_escala_auto()
+
+        COLOR_N = QColor(0, 100, 200)      # Azul para Axil
+        COLOR_V = QColor(0, 160, 80)       # Verde para Cortante
+        COLOR_M = QColor(200, 0, 200)      # Magenta para Momento
 
         for barra in self.modelo.barras:
-            if barra.id not in self._resultado.diagramas_finales:
+            diagrama = self._resultado.diagramas_finales.get(barra.id)
+            if diagrama is None:
                 continue
 
-            diagrama = self._resultado.diagramas_finales[barra.id]
-
-            # Muestrear el diagrama
-            n_puntos = 21
-            puntos = []
-
-            for i in range(n_puntos):
-                x_local = i * barra.L / (n_puntos - 1)
-                M = diagrama.M(x_local)
-
-                # Posición en el mundo
-                t = x_local / barra.L
-                x_world = barra.nudo_i.x + t * (barra.nudo_j.x - barra.nudo_i.x)
-                y_world = barra.nudo_i.y + t * (barra.nudo_j.y - barra.nudo_i.y)
-
-                # Perpendicular a la barra (escalar momento)
-                import math
-                ang = barra.angulo + math.pi/2
-                escala_M = 0.1  # Ajustar según convenga
-                x_offset = M * escala_M * math.cos(ang)
-                y_offset = M * escala_M * math.sin(ang)
-
-                pos = self._world_to_scene(x_world + x_offset, y_world + y_offset)
-                puntos.append(pos)
-
-            # Dibujar polilínea
-            if len(puntos) > 1:
-                for i in range(len(puntos) - 1):
-                    painter.drawLine(puntos[i], puntos[i+1])
+            if self._show_diagrama_N:
+                self._draw_diagrama_componente(
+                    painter, barra, diagrama,
+                    lambda x, d=diagrama: d.N(x),
+                    escala, COLOR_N
+                )
+            if self._show_diagrama_V:
+                self._draw_diagrama_componente(
+                    painter, barra, diagrama,
+                    lambda x, d=diagrama: d.V(x),
+                    escala, COLOR_V
+                )
+            if self._show_diagrama_M:
+                self._draw_diagrama_componente(
+                    painter, barra, diagrama,
+                    lambda x, d=diagrama: d.M(x),
+                    escala, COLOR_M
+                )
 
     def _draw_temp_bar(self, painter: QPainter):
         """Dibuja la barra temporal durante la creación."""
@@ -1133,6 +1251,7 @@ class StructureCanvas(QGraphicsView):
             if abs(nudo.x - x) < 0.01 and abs(nudo.y - y) < 0.01:
                 return  # Ya existe
 
+        self._guardar_snapshot_undo()  # Antes de mutar
         self.modelo.agregar_nudo(x, y)
         self.model_changed.emit()
         self.viewport().update()
@@ -1153,6 +1272,7 @@ class StructureCanvas(QGraphicsView):
             if abs(nudo.x - x) < 0.01 and abs(nudo.y - y) < 0.01:
                 return nudo  # Retornar el existente
 
+        self._guardar_snapshot_undo()  # Antes de mutar
         nudo = self.modelo.agregar_nudo(x, y)
         self.model_changed.emit()
         self.viewport().update()
@@ -1186,6 +1306,7 @@ class StructureCanvas(QGraphicsView):
 
         if material and seccion:
             try:
+                self._guardar_snapshot_undo()  # Antes de mutar
                 barra = self.modelo.agregar_barra(nudo_i, nudo_j, material, seccion)
                 self.model_changed.emit()
                 self.viewport().update()
@@ -1221,6 +1342,7 @@ class StructureCanvas(QGraphicsView):
 
                 if material and seccion:
                     try:
+                        self._guardar_snapshot_undo()  # Antes de mutar
                         self.modelo.agregar_barra(
                             self._temp_bar_start,
                             nudo_cercano,
@@ -1295,6 +1417,11 @@ class StructureCanvas(QGraphicsView):
 
     def delete_selected(self):
         """Elimina los elementos seleccionados."""
+        if not self._selected_bars and not self._selected_nodes:
+            return
+
+        self._guardar_snapshot_undo()  # Antes de mutar
+
         for barra_id in self._selected_bars:
             self.modelo.remover_barra(barra_id)
 
@@ -1355,6 +1482,7 @@ class StructureCanvas(QGraphicsView):
 
     def _eliminar_carga(self, carga):
         """Elimina una carga específica."""
+        self._guardar_snapshot_undo()  # Antes de mutar
         self.modelo.remover_carga(carga)
         self.model_changed.emit()
         self.viewport().update()

@@ -682,22 +682,25 @@ class MotorMetodoFuerzas:
                 # Desplazamiento horizontal
                 # Rx = -kx × Ux → Ux = -Rx / kx = -Xi / kx
                 desplazamiento_x = -Xi / resorte.kx
-                # Actualizar reacción en el resorte
+                # Almacenar reacción en el vínculo y desplazamiento en el nudo
                 resorte.Rx = Xi
+                nudo.Ux = desplazamiento_x
 
             elif redundante.tipo == TipoRedundante.REACCION_RY and resorte.ky > 0:
                 # Desplazamiento vertical
                 # Ry = -ky × Uy → Uy = -Ry / ky = -Xi / ky
                 desplazamiento_y = -Xi / resorte.ky
-                # Actualizar reacción en el resorte
+                # Almacenar reacción en el vínculo y desplazamiento en el nudo
                 resorte.Ry = Xi
+                nudo.Uy = desplazamiento_y
 
             elif redundante.tipo == TipoRedundante.REACCION_MZ and resorte.ktheta > 0:
                 # Rotación
                 # Mz = -kθ × θz → θz = -Mz / kθ = -Xi / kθ
                 rotacion_z = -Xi / resorte.ktheta
-                # Actualizar reacción en el resorte
+                # Almacenar reacción en el vínculo y rotación en el nudo
                 resorte.Mz = Xi
+                nudo.theta_z = rotacion_z
 
     def _resolver_isostatica(self) -> ResultadoAnalisis:
         """
@@ -759,34 +762,63 @@ class MotorMetodoFuerzas:
 
         ΣFx = 0, ΣFy = 0, ΣMz = 0
 
+        Suma cargas externas aplicadas y reacciones finales (superposición
+        R_final = R0 + ΣXi·Ri) y comprueba que el residual sea nulo.
+
         Returns:
             Tupla (equilibrio_satisfecho, residuales)
         """
         if self._estado != EstadoAnalisis.RESULTADOS_CALCULADOS:
             raise ValueError("Primero debe ejecutar el análisis")
 
-        # Sumar cargas aplicadas
-        Fx_total = 0.0
-        Fy_total = 0.0
-        Mz_total = 0.0
+        # --- 1. Sumar cargas aplicadas (fuerzas y momentos externos) ---
+        Fx_cargas = 0.0
+        Fy_cargas = 0.0
+        Mz_cargas = 0.0
 
         for carga in self.modelo.cargas:
             if hasattr(carga, 'Fx'):
-                Fx_total += carga.Fx
+                Fx_cargas += carga.Fx
             if hasattr(carga, 'Fy'):
-                Fy_total += carga.Fy
+                Fy_cargas += carga.Fy
             if hasattr(carga, 'Mz'):
-                Mz_total += carga.Mz
-            # Nota: Las cargas distribuidas se consideran mediante sus acciones de empotramiento
+                Mz_cargas += carga.Mz
+            # Cargas distribuidas: su resultante ya está incluida en las
+            # reacciones de la estructura fundamental a través de las
+            # acciones de empotramiento, no se suman aquí directamente.
 
-        # Sumar reacciones (con signo opuesto)
-        for nudo_id, (Rx, Ry, Mz) in self._solucion_sece.X if self._solucion_sece else []:
-            pass  # Las reacciones ya están en el resultado
+        # --- 2. Sumar reacciones finales (superposición) ---
+        # R_final = R0 + ΣXi·Ri  (reconstruido desde subestructuras internas)
+        Rx_reac = 0.0
+        Ry_reac = 0.0
+        Mz_reac = 0.0
 
+        X = self._solucion_sece.X if self._solucion_sece is not None else []
+
+        for nudo in self.modelo.nudos:
+            if not nudo.tiene_vinculo:
+                continue
+
+            # Reacción en estructura fundamental
+            R0 = self._fundamental.obtener_reaccion(nudo.id)
+            Rx, Ry, Mz_r = R0
+
+            # Sumar contribuciones de cada redundante
+            for i, Xi in enumerate(X):
+                Ri = self._subestructuras_xi[i].obtener_reaccion(nudo.id)
+                Rx += Xi * Ri[0]
+                Ry += Xi * Ri[1]
+                Mz_r += Xi * Ri[2]
+
+            Rx_reac += Rx
+            Ry_reac += Ry
+            Mz_reac += Mz_r
+
+        # --- 3. Residuales: ΣFuerzas_externas + ΣReacciones = 0 ---
         residuales = {
-            "Fx": abs(Fx_total),
-            "Fy": abs(Fy_total),
-            "Mz": abs(Mz_total),
+            "Fx": abs(Fx_cargas + Rx_reac),
+            "Fy": abs(Fy_cargas + Ry_reac),
+            "Mz": abs(Mz_cargas + Mz_reac),
         }
 
         equilibrio_ok = all(r < TOLERANCE for r in residuales.values())

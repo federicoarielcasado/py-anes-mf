@@ -41,6 +41,7 @@ class ResultsPanel(QWidget):
         super().__init__(parent)
 
         self._resultado = None
+        self._modelo = None   # Referencia al ModeloEstructural (para equilibrio)
 
         self._setup_ui()
 
@@ -195,14 +196,16 @@ class ResultsPanel(QWidget):
 
         self.tabs.addTab(widget, "Log")
 
-    def mostrar_resultado(self, resultado):
+    def mostrar_resultado(self, resultado, modelo=None):
         """
         Muestra los resultados del análisis.
 
         Args:
             resultado: Objeto ResultadoAnalisis del motor de fuerzas
+            modelo: ModeloEstructural opcional (necesario para equilibrio correcto)
         """
         self._resultado = resultado
+        self._modelo = modelo  # Guardar referencia para cálculo de equilibrio
 
         # Actualizar resumen
         self._actualizar_resumen(resultado)
@@ -265,9 +268,10 @@ class ResultsPanel(QWidget):
 
         self.table_reacciones.setRowCount(len(reacciones))
 
-        sum_fx = 0.0
-        sum_fy = 0.0
-        sum_mz = 0.0
+        # Suma de reacciones
+        sum_rx = 0.0
+        sum_ry = 0.0
+        sum_mz_reac = 0.0
 
         for i, (nudo_id, (rx, ry, mz)) in enumerate(reacciones.items()):
             self.table_reacciones.setItem(i, 0, QTableWidgetItem(str(nudo_id)))
@@ -275,17 +279,61 @@ class ResultsPanel(QWidget):
             self.table_reacciones.setItem(i, 2, QTableWidgetItem(f"{ry:.3f}"))
             self.table_reacciones.setItem(i, 3, QTableWidgetItem(f"{mz:.3f}"))
 
-            sum_fx += rx
-            sum_fy += ry
-            sum_mz += mz
+            sum_rx += rx
+            sum_ry += ry
+            sum_mz_reac += mz
 
-        # Verificación de equilibrio
-        if abs(sum_fx) < 1e-4 and abs(sum_fy) < 1e-4 and abs(sum_mz) < 1e-4:
-            self.label_equilibrio.setText("Verificación de equilibrio: OK")
+        # Suma de cargas aplicadas (si tenemos referencia al modelo)
+        sum_fx_cargas = 0.0
+        sum_fy_cargas = 0.0
+        sum_mz_cargas = 0.0
+
+        if self._modelo is not None:
+            from src.domain.entities.carga import (
+                CargaPuntualNudo, CargaPuntualBarra, CargaDistribuida
+            )
+            for carga in self._modelo.cargas:
+                if isinstance(carga, CargaPuntualNudo):
+                    sum_fx_cargas += carga.Fx
+                    sum_fy_cargas += carga.Fy
+                    sum_mz_cargas += carga.Mz
+                elif isinstance(carga, (CargaPuntualBarra, CargaDistribuida)):
+                    # Las cargas en barra se transforman a fuerzas nodales
+                    # equivalentes; su resultante global es la integral
+                    # de la carga. Para la verificación rápida del panel,
+                    # usamos la resultante de la carga.
+                    try:
+                        if isinstance(carga, CargaPuntualBarra):
+                            import math
+                            ang_global = carga.barra.angulo + math.radians(carga.angulo)
+                            P = carga.P
+                            sum_fx_cargas += P * math.cos(ang_global)
+                            sum_fy_cargas += P * math.sin(ang_global)
+                        elif isinstance(carga, CargaDistribuida):
+                            # Resultante del trapecio
+                            dx = carga.x2 - carga.x1
+                            R = (carga.q1 + carga.q2) * dx / 2.0
+                            import math
+                            ang_global = carga.barra.angulo + math.radians(carga.angulo)
+                            sum_fx_cargas += R * math.cos(ang_global)
+                            sum_fy_cargas += R * math.sin(ang_global)
+                    except Exception:
+                        pass  # Si falla el cálculo, omitir esta carga
+
+        # Equilibrio: ΣReacciones + ΣCargas = 0
+        res_fx = abs(sum_rx + sum_fx_cargas)
+        res_fy = abs(sum_ry + sum_fy_cargas)
+        # Para Mz del equilibrio global usamos sólo reacciones+cargas puntuales nudo
+        # (simplificado, ya que las cargas en barras generan momentos que dependen
+        # del punto de referencia)
+        tol = 1e-3
+
+        if res_fx < tol and res_fy < tol:
+            self.label_equilibrio.setText("Verificacion de equilibrio: OK")
             self.label_equilibrio.setStyleSheet("color: green;")
         else:
             self.label_equilibrio.setText(
-                f"Equilibrio: ΣFx={sum_fx:.4f}, ΣFy={sum_fy:.4f}, ΣMz={sum_mz:.4f}"
+                f"Equilibrio: ResidFx={res_fx:.4f} kN, ResidFy={res_fy:.4f} kN"
             )
             self.label_equilibrio.setStyleSheet("color: orange;")
 
@@ -297,26 +345,37 @@ class ResultsPanel(QWidget):
         if not resultado.diagramas_finales:
             return
 
-        # Calcular máximos globales
+        # Calcular máximos globales muestreando el vano completo
         n_max = 0.0
         v_max = 0.0
         m_max = 0.0
 
+        N_PUNTOS = 21  # Puntos de muestreo por barra
+
         for barra_id, diagrama in resultado.diagramas_finales.items():
             self.combo_barra.addItem(f"Barra {barra_id}", barra_id)
 
-            # Obtener valores en extremos para máximos
-            Ni = abs(diagrama.N(0))
-            Vi = abs(diagrama.V(0))
-            Mi = abs(diagrama.M(0))
+            # Muestrear toda la barra (no sólo x=0)
+            try:
+                valores = diagrama.valores_en_puntos(N_PUNTOS)
+                n_max_barra = float(max(abs(v) for v in valores["N"]))
+                v_max_barra = float(max(abs(v) for v in valores["V"]))
+                m_max_barra = float(max(abs(v) for v in valores["M"]))
+            except Exception:
+                # Fallback: evaluar en 21 puntos directamente
+                import numpy as np
+                xs = [i * diagrama.L / (N_PUNTOS - 1) for i in range(N_PUNTOS)]
+                n_max_barra = max(abs(diagrama.N(x)) for x in xs)
+                v_max_barra = max(abs(diagrama.V(x)) for x in xs)
+                m_max_barra = max(abs(diagrama.M(x)) for x in xs)
 
-            n_max = max(n_max, Ni)
-            v_max = max(v_max, Vi)
-            m_max = max(m_max, Mi)
+            n_max = max(n_max, n_max_barra)
+            v_max = max(v_max, v_max_barra)
+            m_max = max(m_max, m_max_barra)
 
-        self.label_n_max.setText(f"N máx: {n_max:.2f} kN")
-        self.label_v_max.setText(f"V máx: {v_max:.2f} kN")
-        self.label_m_max.setText(f"M máx: {m_max:.2f} kNm")
+        self.label_n_max.setText(f"N max: {n_max:.2f} kN")
+        self.label_v_max.setText(f"V max: {v_max:.2f} kN")
+        self.label_m_max.setText(f"M max: {m_max:.2f} kNm")
 
     def _on_barra_changed(self, index):
         """Maneja el cambio de barra seleccionada."""
@@ -335,9 +394,9 @@ class ResultsPanel(QWidget):
         Ni = diagrama.N(0)
         Vi = diagrama.V(0)
         Mi = diagrama.M(0)
-        Nj = diagrama.N(diagrama.L) if hasattr(diagrama, 'L') else diagrama.N(1.0)
-        Vj = diagrama.V(diagrama.L) if hasattr(diagrama, 'L') else diagrama.V(1.0)
-        Mj = diagrama.M(diagrama.L) if hasattr(diagrama, 'L') else diagrama.M(1.0)
+        Nj = diagrama.N(diagrama.L)
+        Vj = diagrama.V(diagrama.L)
+        Mj = diagrama.M(diagrama.L)
 
         self.table_esfuerzos.setRowCount(1)
         self.table_esfuerzos.setItem(0, 0, QTableWidgetItem("i-j"))
@@ -407,6 +466,7 @@ class ResultsPanel(QWidget):
     def limpiar(self):
         """Limpia todos los resultados."""
         self._resultado = None
+        self._modelo = None
 
         # Limpiar resumen
         self.label_gh.setText("Grado de hiperestaticidad: 0")

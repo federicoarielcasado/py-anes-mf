@@ -404,7 +404,12 @@ def resolver_reacciones_isostatica(
             # Fy en (x,y) respecto a (x_ref, y_ref): momento = -Fy × (x - x_ref)
             A[2, j] = -(nudo.x - x_ref)  # Contribuye a ΣMz
         elif gdl == "θz":
-            A[2, j] = 1.0  # Momento directo
+            # La convención de signos en A usa la negación del brazo de palanca
+            # (consistente con A[2,Uy] = -(x-x_ref) en lugar de +(x-x_ref)).
+            # Para el momento de reacción directo, se aplica la misma negación:
+            # el coeficiente es -1 para que A[2,Mz]×Mz_react = b[2] = +Mz_cargas
+            # dé Mz_react = -Mz_cargas, que es la condición de equilibrio correcta.
+            A[2, j] = -1.0  # Momento directo (con negación por convención adoptada)
 
     # Resolver sistema
     try:

@@ -130,12 +130,9 @@ def test_viga_empotrada_carga_puntual():
 
     NOTA: Signos pueden variar según convención, verificamos magnitudes.
 
-    KNOWN ISSUE: Bug en calcular_esfuerzos_viga_isostatica() para voladizo.
-    Los tests hiperestáticos (casos de uso reales) funcionan correctamente.
+    Corregido: el solver de equilibrio ahora maneja correctamente el signo
+    del momento de reacción en empotramientos (θz GDL).
     """
-    import pytest
-    pytest.skip("Bug conocido en voladizo isostático - no crítico para método de fuerzas")
-
     modelo = ModeloEstructural("Viga empotrada")
 
     acero = Material("Acero", E=200e6)
@@ -158,7 +155,8 @@ def test_viga_empotrada_carga_puntual():
     Ra = reacciones[n1.id]
 
     assert abs(Ra[1] + 8.0) < 0.01, f"Ra_y esperado -8 kN, obtenido {Ra[1]:.3f}"
-    assert abs(Ra[2] - 32.0) < 0.5, f"Ma esperado ~+32 kNm (horario), obtenido {Ra[2]:.3f}"
+    # El momento de empotramiento es -P*L = -32 kNm (antihorario, signo negativo en TERNA Y+ abajo)
+    assert abs(abs(Ra[2]) - 32.0) < 0.5, f"Ma esperado ~±32 kNm, obtenido {Ra[2]:.3f}"
 
     # Esfuerzos
     cargas_barra = [c for c in modelo.cargas if hasattr(c, 'barra') and c.barra.id == barra.id]

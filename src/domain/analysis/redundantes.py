@@ -289,13 +289,20 @@ class SelectorRedundantes:
         Una selección es inestable si al liberar los redundantes, la estructura
         fundamental resultante es un mecanismo.
 
+        Realiza dos verificaciones:
+        1. Conteo básico: deben quedar exactamente 3 reacciones para isostática.
+        2. Rango geométrico: la matriz de equilibrio de las reacciones restantes
+           debe tener rango 3 (no degenerar por fuerzas colineales o paralelas).
+
         Args:
             redundantes: Lista de redundantes a verificar
 
         Returns:
             True si la selección crea inestabilidad
         """
-        # Contar reacciones que quedarían
+        import numpy as np
+
+        # ── 1. Conteo básico ──────────────────────────────────────────────────
         reacciones_totales = self.modelo.num_reacciones
         reacciones_liberadas = sum(
             1 for r in redundantes
@@ -307,7 +314,7 @@ class SelectorRedundantes:
         )
         reacciones_restantes = reacciones_totales - reacciones_liberadas
 
-        # Para estructura isostática necesitamos al menos 3 reacciones
+        # Para estructura isostática necesitamos exactamente 3 reacciones
         if reacciones_restantes < 3:
             return True
 
@@ -329,6 +336,63 @@ class SelectorRedundantes:
             # Si se liberan todos los GDL de un nudo, es inestable
             if gdl_liberados >= len(gdl):
                 return True
+
+        # ── 2. Verificación de rango geométrico ───────────────────────────────
+        # Construir la matriz de equilibrio para las reacciones que QUEDAN
+        # (sin las redundantes actuales). Si la matriz es singular o de rango < 3,
+        # la selección genera inestabilidad geométrica (e.g. todas las fuerzas
+        # son paralelas y no equilibran momentos).
+        ids_redundantes = set(
+            (r.nudo_id, r.tipo) for r in redundantes
+        )
+
+        # Punto de referencia para momentos: primer nudo vinculado
+        nudos_vinculados = [n for n in self.modelo.nudos if n.tiene_vinculo]
+        if not nudos_vinculados:
+            return True
+
+        x_ref = nudos_vinculados[0].x
+        y_ref = nudos_vinculados[0].y
+
+        # Identificar incógnitas que QUEDAN tras liberar los redundantes
+        incognitas_restantes = []
+        for nudo in self.modelo.nudos:
+            if not nudo.tiene_vinculo:
+                continue
+            gdl_nudo = nudo.vinculo.gdl_restringidos()
+            for gdl in gdl_nudo:
+                if gdl == "Ux":
+                    tipo = TipoRedundante.REACCION_RX
+                elif gdl == "Uy":
+                    tipo = TipoRedundante.REACCION_RY
+                elif gdl == "θz":
+                    tipo = TipoRedundante.REACCION_MZ
+                else:
+                    continue
+                # Incluir solo si NO es redundante
+                if (nudo.id, tipo) not in ids_redundantes:
+                    incognitas_restantes.append((nudo, gdl))
+
+        if len(incognitas_restantes) != 3:
+            # Si no quedan exactamente 3, ya lo detectamos arriba
+            return reacciones_restantes < 3
+
+        # Construir matriz A (3×3) para las 3 incógnitas restantes
+        A = np.zeros((3, 3))
+        for j, (nudo, gdl) in enumerate(incognitas_restantes):
+            if gdl == "Ux":
+                A[0, j] = 1.0
+                A[2, j] = (nudo.y - y_ref)
+            elif gdl == "Uy":
+                A[1, j] = 1.0
+                A[2, j] = -(nudo.x - x_ref)
+            elif gdl == "θz":
+                A[2, j] = -1.0  # Convención adoptada (negativa, ver equilibrio.py)
+
+        # Si la matriz es singular, la selección es inestable
+        rank = np.linalg.matrix_rank(A)
+        if rank < 3:
+            return True
 
         return False
 
