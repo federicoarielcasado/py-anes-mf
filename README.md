@@ -1,6 +1,6 @@
 # PyANES-MF 🏗️
 
-**Sistema Profesional de Análisis Estructural por Método de las Fuerzas**
+**Sistema de Análisis Estructural por Método de las Fuerzas**
 
 [![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/)
 [![Tests](https://img.shields.io/badge/Tests-168%2F171%20passing-brightgreen.svg)](tests/)
@@ -10,7 +10,7 @@
 
 ## 📋 Descripción
 
-PyANES-MF es un software profesional de análisis estructural para **pórticos planos 2D hiperestáticos** utilizando el **Método de las Fuerzas** (también conocido como Método de Flexibilidad o Método de Compatibilidad de Deformaciones).
+PyANES-MF es un software de análisis estructural para **pórticos planos 2D hiperestáticos** utilizando el **Método de las Fuerzas** (también conocido como Método de Flexibilidad o Método de Compatibilidad de Deformaciones).
 
 ### ✨ Características Principales
 
@@ -538,7 +538,7 @@ PyANES-MF utiliza métodos numéricos robustos para garantizar precisión:
 
 ## 📝 Changelog
 
-### v1.0.0 (Febrero 2024)
+### v1.0.0 (19 de Febrero de 2026)
 
 **Implementado:**
 - ✅ Motor completo del Método de las Fuerzas
@@ -556,17 +556,7 @@ PyANES-MF utiliza métodos numéricos robustos para garantizar precisión:
 
 ---
 
-## 🤝 Contribuciones
-
-Este proyecto está abierto a contribuciones. Si deseas colaborar:
-
-1. **Fork** el repositorio
-2. Crea una **branch** para tu feature (`git checkout -b feature/nueva-funcionalidad`)
-3. **Commit** tus cambios (`git commit -m 'Agregar nueva funcionalidad'`)
-4. **Push** a la branch (`git push origin feature/nueva-funcionalidad`)
-5. Abre un **Pull Request**
-
-### Áreas de Mejora Sugeridas
+### Áreas de mejora en revisión:
 
 - [ ] Interfaz gráfica interactiva (PyQt6/Tkinter)
 - [ ] Exportación de resultados en PDF vectorial
@@ -584,7 +574,7 @@ Este proyecto está licenciado bajo la **Licencia MIT** - ver el archivo [LICENS
 
 ## 👨‍💻 Autor
 
-**Federico** - Ingeniero Civil
+**Federico** - Ingeniería Civil
 
 - 🎓 Especialización: Análisis estructural avanzado
 - 💻 Stack técnico: Python, NumPy, SciPy, Matplotlib
@@ -592,28 +582,4 @@ Este proyecto está licenciado bajo la **Licencia MIT** - ver el archivo [LICENS
 
 ---
 
-## 📧 Contacto y Soporte
-
-Para consultas técnicas o reportar issues:
-
-- 📂 **Documentación técnica**: Ver carpeta `docs/`
-- 🐛 **Reportar bugs**: Abrir un issue en GitHub
-- 💡 **Sugerencias**: Pull requests son bienvenidos
-
----
-
-## 🙏 Agradecimientos
-
-Este proyecto fue desarrollado con apoyo de:
-
-- Literatura técnica clásica de análisis estructural
-- Comunidad de Python científico (NumPy, SciPy, Matplotlib)
-- Metodologías de ingeniería de software modernas
-
----
-
-**✨ Desarrollado con dedicación para la comunidad de ingeniería estructural ✨**
-
----
-
-*Última actualización: Febrero 2024*
+*Última actualización: 19 de Febrero de 2026*
