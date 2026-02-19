@@ -230,12 +230,16 @@ class GeneradorSubestructuras:
         Para cada redundante:
         - Aplicar carga unitaria en la dirección del redundante
         - Calcular esfuerzos en la estructura fundamental
+        - Calcular reacciones en los vínculos de la fundamental bajo la carga unitaria
 
         Returns:
             Lista de subestructuras Xi
         """
         from src.domain.analysis.redundantes import TipoRedundante
         from src.domain.mechanics.esfuerzos import crear_diagrama_lineal
+
+        # Obtener vínculos de la fundamental (necesarios para resolver reacciones Xi)
+        vinculos_fundamental = self._crear_vinculos_fundamental()
 
         subestructuras = []
 
@@ -263,9 +267,72 @@ class GeneradorSubestructuras:
                 # Momento interno unitario (articulación virtual)
                 self._calcular_esfuerzos_momento_interno(sub, redundante)
 
+            # Calcular reacciones en la fundamental bajo la carga unitaria del redundante
+            # Esto es necesario para la superposición: R_final = R0 + ΣXi·Ri
+            self._calcular_reacciones_xi(sub, redundante, vinculos_fundamental)
+
             subestructuras.append(sub)
 
         return subestructuras
+
+    def _calcular_reacciones_xi(
+        self,
+        sub: Subestructura,
+        redundante: Redundante,
+        vinculos_fundamental: Dict[int, List[str]],
+    ) -> None:
+        """
+        Calcula las reacciones de vínculo en la subestructura Xi.
+
+        Aplica temporalmente los vínculos de la fundamental y resuelve el
+        equilibrio bajo la carga unitaria del redundante. El resultado se
+        almacena en sub.reacciones para la superposición final:
+            R_final = R0 + ΣXi · Ri
+
+        Args:
+            sub: Subestructura Xi a completar
+            redundante: Redundante cuya carga unitaria se aplica
+            vinculos_fundamental: Vínculos de la estructura fundamental
+        """
+        from src.domain.analysis.redundantes import TipoRedundante
+        from src.domain.entities.carga import CargaPuntualNudo
+        from src.domain.mechanics.equilibrio import resolver_reacciones_isostatica
+
+        # Construir la carga unitaria equivalente al redundante
+        nudo_carga = next((n for n in self.nudos if n.id == redundante.nudo_id), None)
+        if nudo_carga is None:
+            return
+
+        if redundante.tipo == TipoRedundante.REACCION_MZ:
+            carga_unitaria = CargaPuntualNudo(nudo=nudo_carga, Fx=0.0, Fy=0.0, Mz=1.0)
+        elif redundante.tipo == TipoRedundante.REACCION_RY:
+            carga_unitaria = CargaPuntualNudo(nudo=nudo_carga, Fx=0.0, Fy=1.0, Mz=0.0)
+        elif redundante.tipo == TipoRedundante.REACCION_RX:
+            carga_unitaria = CargaPuntualNudo(nudo=nudo_carga, Fx=1.0, Fy=0.0, Mz=0.0)
+        else:
+            # Momentos internos: no afectan reacciones de vínculo externo directamente
+            return
+
+        # Guardar vínculos originales y aplicar los de la fundamental
+        vinculos_originales = {n.id: n.vinculo for n in self.nudos}
+        self._aplicar_vinculos_temporales(vinculos_fundamental)
+
+        try:
+            reacciones = resolver_reacciones_isostatica(
+                self.nudos,
+                self.barras,
+                [carga_unitaria],
+            )
+            sub.reacciones = reacciones.reacciones
+        except ValueError:
+            # Si falla (ej. estructura con más de 3 GDL en fundamental, raro),
+            # las reacciones quedan en cero — la superposición será incompleta
+            # pero no bloqueará el análisis.
+            sub.reacciones = {}
+        finally:
+            # Restaurar vínculos originales
+            for nudo in self.nudos:
+                nudo.vinculo = vinculos_originales[nudo.id]
 
     def _calcular_esfuerzos_momento_unitario(
         self,

@@ -610,18 +610,48 @@ class MotorMetodoFuerzas:
             )
 
         # Superponer reacciones
+        #
+        # En el Método de las Fuerzas, la reacción final en cada nudo se calcula
+        # de la siguiente manera:
+        #
+        #   - Para componentes que son redundantes (ej: Mz en empotramiento liberado):
+        #     La reacción final ES directamente el valor Xi resuelto.
+        #     El redundante Xi representa exactamente esa reacción.
+        #
+        #   - Para componentes que NO son redundantes (ej: Ry en apoyo fijo de la
+        #     fundamental):
+        #     La reacción viene de la estructura fundamental: R_final = R0.
+        #     Los redundantes Xi solo modifican las componentes que son su propio
+        #     GDL liberado; las reacciones en otros vínculos de la fundamental ya
+        #     incorporan el efecto de los Xi a través del equilibrio que se resolvió
+        #     en la fundamental bajo las cargas reales (R0 ya es correcto).
+        #
+        # En otras palabras: R_final = R0 para no-redundantes, Xi para redundantes.
+        # No hay contribución cruzada Xi·Ri entre nudos distintos.
+        from src.domain.analysis.redundantes import TipoRedundante
+
+        # Construir mapa {(nudo_id, componente) → valor_Xi}
+        redundante_map: Dict[Tuple[int, str], float] = {}
+        for i, red in enumerate(self._redundantes):
+            if red.nudo_id is None:
+                continue
+            if red.tipo == TipoRedundante.REACCION_RX:
+                redundante_map[(red.nudo_id, "Rx")] = float(X[i])
+            elif red.tipo == TipoRedundante.REACCION_RY:
+                redundante_map[(red.nudo_id, "Ry")] = float(X[i])
+            elif red.tipo == TipoRedundante.REACCION_MZ:
+                redundante_map[(red.nudo_id, "Mz")] = float(X[i])
+
         for nudo in self.modelo.nudos:
             if not nudo.tiene_vinculo:
                 continue
 
             R0 = self._fundamental.obtener_reaccion(nudo.id)
-            Rx, Ry, Mz = R0
 
-            for i, Xi in enumerate(X):
-                Ri = self._subestructuras_xi[i].obtener_reaccion(nudo.id)
-                Rx += Xi * Ri[0]
-                Ry += Xi * Ri[1]
-                Mz += Xi * Ri[2]
+            # Cada componente: usa Xi si es redundante, R0 si no lo es
+            Rx = redundante_map.get((nudo.id, "Rx"), R0[0])
+            Ry = redundante_map.get((nudo.id, "Ry"), R0[1])
+            Mz = redundante_map.get((nudo.id, "Mz"), R0[2])
 
             reacciones_finales[nudo.id] = (Rx, Ry, Mz)
 

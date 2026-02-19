@@ -178,21 +178,38 @@ class TestVigaBiempotradaCargaPuntual:
         )
 
     def test_reacciones_verticales_simetricas(self, modelo_viga_biempotrada):
-        """Las reacciones verticales deben ser simétricas: |Ra| = |Rb| = P/2.
+        """
+        Las reacciones verticales deben ser simétricas: Ra = Rb = P/2 = 5 kN.
+        Los momentos de reacción deben ser: |Ma| = |Mb| = P·L/8 = 7.5 kNm.
 
-        NOTA: El cálculo completo de reacciones aún no está implementado.
-        Este test verifica que el análisis de momentos se complete correctamente.
+        Para P = 10 kN, L = 6 m:
+          Ra = Rb = 5 kN
+          Ma = Mb = 7.5 kNm
         """
         resultado = analizar_estructura(modelo_viga_biempotrada)
-
         assert resultado.exitoso, f"Análisis falló: {resultado.errores}"
 
-        # Por ahora verificamos que el análisis se complete
-        # El cálculo de reacciones requiere superposición adicional
-        assert resultado.valores_X is not None, "No se obtuvieron valores de redundantes"
+        nudos = modelo_viga_biempotrada.nudos
+        nA_id = nudos[0].id
+        nB_id = nudos[1].id
 
-        # Skip del test de reacciones específicas hasta completar implementación
-        pytest.skip("Cálculo de reacciones finales aún no completamente implementado")
+        rA = resultado.obtener_reaccion(nA_id)
+        rB = resultado.obtener_reaccion(nB_id)
+
+        tol = 0.1  # 2% de tolerancia sobre 5 kN
+
+        assert abs(abs(rA[1]) - 5.0) < tol, (
+            f"Reaccion vertical en A: esperado 5.0 kN, obtenido {rA[1]:.4f} kN"
+        )
+        assert abs(abs(rB[1]) - 5.0) < tol, (
+            f"Reaccion vertical en B: esperado 5.0 kN, obtenido {rB[1]:.4f} kN"
+        )
+        assert abs(abs(rA[2]) - 7.5) < tol, (
+            f"Momento de reaccion en A: esperado 7.5 kNm, obtenido {rA[2]:.4f} kNm"
+        )
+        assert abs(abs(rB[2]) - 7.5) < tol, (
+            f"Momento de reaccion en B: esperado 7.5 kNm, obtenido {rB[2]:.4f} kNm"
+        )
 
 
 # =============================================================================
@@ -402,24 +419,27 @@ class TestPorticoSimple:
 
     def test_equilibrio_global_portico(self, modelo_portico):
         """
-        Verificar equilibrio global: ΣFx = 0, ΣFy = 0, ΣM = 0.
+        Verificar equilibrio global: ΣFx = 0, ΣFy = 0.
 
         Con F = 10 kN horizontal en C:
-        - Suma de reacciones Rx debe ser -10 kN (opuesto a F)
-        - Suma de reacciones Ry debe ser 0 (no hay carga vertical)
-
-        NOTA: El cálculo de reacciones finales aún requiere trabajo adicional.
+        - ΣRx = -10 kN (opuesto a la carga aplicada)
+        - ΣRy = 0 kN (no hay carga vertical)
         """
         resultado = analizar_estructura(modelo_portico)
+        assert resultado.exitoso, f"Analisis no exitoso: {resultado.errores}"
 
-        if not resultado.exitoso:
-            pytest.skip(f"Análisis no exitoso: {resultado.errores}")
+        nudos_vinculados = [n for n in modelo_portico.nudos if n.tiene_vinculo]
+        sum_Rx = sum(resultado.obtener_reaccion(n.id)[0] for n in nudos_vinculados)
+        sum_Ry = sum(resultado.obtener_reaccion(n.id)[1] for n in nudos_vinculados)
 
-        # Por ahora verificamos que el análisis se complete
-        assert resultado.valores_X is not None, "No se obtuvieron valores de redundantes"
+        tol = 0.1
 
-        # Skip hasta completar implementación de reacciones
-        pytest.skip("Cálculo de reacciones finales para pórticos aún no completamente implementado")
+        assert abs(sum_Rx + 10.0) < tol, (
+            f"Equilibrio Fx: sum(Rx) + F = {sum_Rx + 10.0:.4f}, esperado ~0"
+        )
+        assert abs(sum_Ry) < tol, (
+            f"Equilibrio Fy: sum(Ry) = {sum_Ry:.4f}, esperado ~0"
+        )
 
 
 # =============================================================================
