@@ -240,17 +240,39 @@ def calcular_esfuerzos_viga_isostatica(
         for carga in cargas_barra:
             if isinstance(carga, CargaDistribuida):
                 x1 = carga.x1
-                x2 = min(carga.x2 or L, x)
+                x2_carga = carga.x2 or L
+                x2 = min(x2_carga, x)
 
                 if x1 < x:
-                    if carga.es_uniforme:
-                        longitud_activa = x2 - x1
-                        resultante = carga.q1 * longitud_activa
-                        x_centroide = x1 + longitud_activa / 2
+                    longitud_activa = x2 - x1
+                    if longitud_activa < 1e-10:
+                        continue
+
+                    # Intensidades en los extremos del tramo activo
+                    longitud_total = x2_carga - x1
+                    if longitud_total < 1e-10:
+                        q_inicio = carga.q1
+                        q_fin = carga.q1
                     else:
-                        longitud_activa = x2 - x1
-                        resultante = (carga.q1 + carga.q2) / 2 * longitud_activa
-                        x_centroide = x1 + longitud_activa / 2
+                        # Interpolación lineal para obtener q en los extremos del tramo activo
+                        t_inicio = 0.0  # x1 siempre es inicio de la carga
+                        t_fin = longitud_activa / longitud_total
+                        q_inicio = carga.q1 + t_inicio * (carga.q2 - carga.q1)
+                        q_fin = carga.q1 + t_fin * (carga.q2 - carga.q1)
+
+                    # Resultante del tramo activo: área del trapecio
+                    resultante = (q_inicio + q_fin) * longitud_activa / 2
+
+                    # Centroide del trapecio recortado respecto a x1
+                    # Para un trapecio con q_a en inicio y q_b en fin:
+                    # x_centroide = L * (q_a + 2*q_b) / (3*(q_a + q_b))
+                    suma_q = q_inicio + q_fin
+                    if abs(suma_q) < 1e-10:
+                        x_centroide_local = longitud_activa / 2
+                    else:
+                        x_centroide_local = longitud_activa * (q_inicio + 2 * q_fin) / (3 * suma_q)
+
+                    x_centroide = x1 + x_centroide_local
 
                     ang_rad = math.radians(carga.angulo)
                     Py_dist = resultante * math.sin(ang_rad)
@@ -276,15 +298,26 @@ def calcular_esfuerzos_viga_isostatica(
         for carga in cargas_barra:
             if isinstance(carga, CargaDistribuida):
                 x1 = carga.x1
-                x2 = min(carga.x2 or L, x)
+                x2_carga = carga.x2 or L
+                x2 = min(x2_carga, x)
 
                 if x1 < x:
-                    if carga.es_uniforme:
-                        longitud_activa = x2 - x1
-                        resultante = carga.q1 * longitud_activa
+                    longitud_activa = x2 - x1
+                    if longitud_activa < 1e-10:
+                        continue
+
+                    # Intensidades en los extremos del tramo activo (interpolación lineal)
+                    longitud_total = x2_carga - x1
+                    if longitud_total < 1e-10:
+                        q_inicio = carga.q1
+                        q_fin = carga.q1
                     else:
-                        longitud_activa = x2 - x1
-                        resultante = (carga.q1 + carga.q2) / 2 * longitud_activa
+                        t_fin = longitud_activa / longitud_total
+                        q_inicio = carga.q1
+                        q_fin = carga.q1 + t_fin * (carga.q2 - carga.q1)
+
+                    # Resultante del tramo activo: área del trapecio
+                    resultante = (q_inicio + q_fin) * longitud_activa / 2
 
                     ang_rad = math.radians(carga.angulo)
                     Py_dist = resultante * math.sin(ang_rad)
@@ -305,15 +338,26 @@ def calcular_esfuerzos_viga_isostatica(
         for carga in cargas_barra:
             if isinstance(carga, CargaDistribuida):
                 x1 = carga.x1
-                x2 = min(carga.x2 or L, x)
+                x2_carga = carga.x2 or L
+                x2 = min(x2_carga, x)
 
                 if x1 < x:
-                    if carga.es_uniforme:
-                        longitud_activa = x2 - x1
-                        resultante = carga.q1 * longitud_activa
+                    longitud_activa = x2 - x1
+                    if longitud_activa < 1e-10:
+                        continue
+
+                    # Intensidades en los extremos del tramo activo (interpolación lineal)
+                    longitud_total = x2_carga - x1
+                    if longitud_total < 1e-10:
+                        q_inicio = carga.q1
+                        q_fin = carga.q1
                     else:
-                        longitud_activa = x2 - x1
-                        resultante = (carga.q1 + carga.q2) / 2 * longitud_activa
+                        t_fin = longitud_activa / longitud_total
+                        q_inicio = carga.q1
+                        q_fin = carga.q1 + t_fin * (carga.q2 - carga.q1)
+
+                    # Resultante del tramo activo: área del trapecio
+                    resultante = (q_inicio + q_fin) * longitud_activa / 2
 
                     ang_rad = math.radians(carga.angulo)
                     Px_dist = resultante * math.cos(ang_rad)

@@ -325,6 +325,138 @@ def test_axil_en_barra_horizontal():
     print("✓ Test axil en barra horizontal: PASSED")
 
 
+def test_viga_simple_carga_triangular():
+    """
+    Test: Viga simplemente apoyada con carga triangular (q1=0, q2=q_max).
+
+    Geometria:
+        A===========B
+        |   /↓↓↓↓↓  |
+        0           L=6m
+
+    Carga: q crece de 0 en A hasta 6 kN/m en B, angulo=90 (hacia abajo)
+
+    Soluciones teoricas:
+        Resultante: R = q_max * L / 2 = 6*6/2 = 18 kN
+        Centroide desde A: x_c = 2*L/3 = 4 m
+        Ra = R * (L - x_c) / L = 18 * 2/6 = 6 kN (hacia arriba)
+        Rb = R * x_c / L = 18 * 4/6 = 12 kN (hacia arriba)
+
+        M_max ocurre donde V=0:
+        V(x) = Ra - q(x)*x/2 = 6 - (q_max/L)*x^2/2
+        V(x) = 0 → x^2 = 2*Ra*L/q_max = 2*6*6/6 = 12 → x = sqrt(12) ≈ 3.464 m
+        M(x) = Ra*x - (q_max/L)*x^3/6
+        M_max = 6*sqrt(12) - (1)*12*sqrt(12)/6 = sqrt(12)*(6 - 2) = 4*sqrt(12) ≈ 13.856 kNm
+    """
+    modelo = ModeloEstructural("Viga carga triangular")
+    acero = Material("Acero", E=200e6)
+    seccion = SeccionRectangular("Rect 20x30", b=0.20, _h=0.30)
+
+    n1 = modelo.agregar_nudo(0, 0, "A")
+    n2 = modelo.agregar_nudo(6, 0, "B")
+    barra = modelo.agregar_barra(n1, n2, acero, seccion)
+
+    n1.vinculo = ApoyoFijo(nudo=n1)
+    n2.vinculo = Rodillo(nudo=n2, direccion='Uy')
+
+    carga = CargaDistribuida(
+        barra=barra,
+        q1=0.0,     # Cero en A
+        q2=6.0,     # 6 kN/m en B
+        x1=0.0,
+        x2=6.0,
+        angulo=90.0  # Hacia abajo
+    )
+    modelo.agregar_carga(carga)
+
+    reacciones = resolver_reacciones_isostatica(modelo.nudos, modelo.barras, modelo.cargas)
+    Ra = reacciones[n1.id]
+    Rb = reacciones[n2.id]
+
+    # Ra = 6 kN hacia arriba = -6 kN en terna Y+ abajo
+    assert abs(Ra[1] + 6.0) < 0.1, f"Ra_y esperado -6 kN, obtenido {Ra[1]:.3f}"
+    # Rb = 12 kN hacia arriba = -12 kN en terna Y+ abajo
+    assert abs(Rb[1] + 12.0) < 0.1, f"Rb_y esperado -12 kN, obtenido {Rb[1]:.3f}"
+
+    cargas_barra = [c for c in modelo.cargas if hasattr(c, 'barra') and c.barra.id == barra.id]
+    diagrama = calcular_esfuerzos_viga_isostatica(
+        barra, cargas_barra, reaccion_i=Ra, reaccion_j=Rb
+    )
+
+    # Extremos: M(0) = M(L) = 0
+    assert abs(diagrama.M(0.0)) < 0.1, f"M(0) debe ser ~0, obtenido {diagrama.M(0.0):.3f}"
+    assert abs(diagrama.M(6.0)) < 0.1, f"M(L) debe ser ~0, obtenido {diagrama.M(6.0):.3f}"
+
+    # Cortante en extremo i: V(0) = Ra = -6 kN (hacia arriba en terna)
+    assert abs(abs(diagrama.V(0.0)) - 6.0) < 0.2, f"V(0) esperado ~6 kN, obtenido {diagrama.V(0.0):.3f}"
+
+    # Momento maximo teorico ~ 13.856 kNm en x ~ 3.464 m
+    import math as _math
+    x_vmax = _math.sqrt(12)  # ~3.464 m
+    M_max = diagrama.M(x_vmax)
+    assert abs(abs(M_max) - 13.856) < 0.5, f"M_max esperado ~13.856 kNm, obtenido {M_max:.3f}"
+
+
+def test_viga_simple_carga_trapezoidal():
+    """
+    Test: Viga simplemente apoyada con carga trapezoidal (q1 != q2, ambos != 0).
+
+    Geometria: L = 4 m, q1 = 2 kN/m en A, q2 = 6 kN/m en B, angulo=90
+
+    Soluciones teoricas:
+        Resultante: R = (q1+q2)*L/2 = (2+6)*4/2 = 16 kN
+        Centroide desde A: x_c = L*(q1+2*q2)/(3*(q1+q2)) = 4*(2+12)/(3*8) = 4*14/24 = 7/3 ≈ 2.333 m
+        Ra = R * (L - x_c) / L = 16 * (4 - 7/3) / 4 = 16 * 5/12 = 20/3 ≈ 6.667 kN
+        Rb = R - Ra = 16 - 20/3 = 28/3 ≈ 9.333 kN
+
+        Verificacion: ΣM_A = -Rb*4 + R*x_c = -Rb*4 + 16*(7/3) = 0 → Rb = 16*7/(3*4) = 28/3 ✓
+    """
+    modelo = ModeloEstructural("Viga carga trapezoidal")
+    acero = Material("Acero", E=200e6)
+    seccion = SeccionRectangular("Rect 20x30", b=0.20, _h=0.30)
+
+    n1 = modelo.agregar_nudo(0, 0, "A")
+    n2 = modelo.agregar_nudo(4, 0, "B")
+    barra = modelo.agregar_barra(n1, n2, acero, seccion)
+
+    n1.vinculo = ApoyoFijo(nudo=n1)
+    n2.vinculo = Rodillo(nudo=n2, direccion='Uy')
+
+    carga = CargaDistribuida(
+        barra=barra,
+        q1=2.0,
+        q2=6.0,
+        x1=0.0,
+        x2=4.0,
+        angulo=90.0  # Hacia abajo
+    )
+    modelo.agregar_carga(carga)
+
+    reacciones = resolver_reacciones_isostatica(modelo.nudos, modelo.barras, modelo.cargas)
+    Ra = reacciones[n1.id]
+    Rb = reacciones[n2.id]
+
+    Ra_esperado = 20.0 / 3   # ~6.667 kN hacia arriba
+    Rb_esperado = 28.0 / 3   # ~9.333 kN hacia arriba
+
+    assert abs(Ra[1] + Ra_esperado) < 0.1, f"Ra_y esperado -{Ra_esperado:.3f} kN, obtenido {Ra[1]:.3f}"
+    assert abs(Rb[1] + Rb_esperado) < 0.1, f"Rb_y esperado -{Rb_esperado:.3f} kN, obtenido {Rb[1]:.3f}"
+
+    cargas_barra = [c for c in modelo.cargas if hasattr(c, 'barra') and c.barra.id == barra.id]
+    diagrama = calcular_esfuerzos_viga_isostatica(
+        barra, cargas_barra, reaccion_i=Ra, reaccion_j=Rb
+    )
+
+    # Extremos: M(0) = M(L) = 0
+    assert abs(diagrama.M(0.0)) < 0.1, f"M(0) debe ser ~0, obtenido {diagrama.M(0.0):.3f}"
+    assert abs(diagrama.M(4.0)) < 0.1, f"M(L) debe ser ~0, obtenido {diagrama.M(4.0):.3f}"
+
+    # Verificar que el cortante en extremos coincide con reacciones
+    assert abs(abs(diagrama.V(0.0)) - Ra_esperado) < 0.2, (
+        f"V(0) esperado ~{Ra_esperado:.3f} kN, obtenido {diagrama.V(0.0):.3f}"
+    )
+
+
 if __name__ == "__main__":
     # Ejecutar tests
     print("\n" + "="*60)
@@ -335,7 +467,9 @@ if __name__ == "__main__":
     test_viga_empotrada_carga_puntual()
     test_viga_simple_carga_distribuida_uniforme()
     test_axil_en_barra_horizontal()
+    test_viga_simple_carga_triangular()
+    test_viga_simple_carga_trapezoidal()
 
     print("\n" + "="*60)
-    print("✓ TODOS LOS TESTS PASARON")
+    print("Todos los tests pasaron")
     print("="*60 + "\n")

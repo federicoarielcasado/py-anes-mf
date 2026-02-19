@@ -259,36 +259,48 @@ class TestVigaBiempotradaCargaDistribuida:
 
     def test_momento_centro_distribuida(self, modelo_viga_carga_distribuida):
         """
-        Momento en el centro: |Mc| = q·L²/24.
+        Momento en el centro: |Mc| = q*L^2/24.
 
         Para q = 5 kN/m, L = 6 m:
-        |Mc| = 5 × 6² / 24 = 7.5 kNm
-
-        Nota: Para carga distribuida, el análisis puede requerir
-        más trabajo para implementar correctamente.
+        |Mc| = 5 * 36 / 24 = 7.5 kNm
         """
         resultado = analizar_estructura(modelo_viga_carga_distribuida)
+        assert resultado.exitoso, f"El analisis fallo: {resultado.errores}"
 
-        # Por ahora, solo verificamos que el análisis se complete
-        # sin errores críticos (puede haber advertencias)
-        if not resultado.exitoso:
-            pytest.skip(f"Análisis con carga distribuida aún no completamente implementado: {resultado.errores}")
+        # Consultar momento en el centro (x=3m de la barra)
+        barra = modelo_viga_carga_distribuida.barras[0]
+        diagrama = resultado.diagramas_finales.get(barra.id)
+        assert diagrama is not None, "No se encontro diagrama para la barra"
+
+        M_centro = diagrama.M(3.0)
+        # Teorico: q*L^2/24 = 5*36/24 = 7.5 kNm
+        assert abs(abs(M_centro) - 7.5) < 0.5, (
+            f"|Mc| esperado 7.5 kNm, obtenido {abs(M_centro):.3f} kNm"
+        )
 
     def test_momento_empotramientos_distribuida(self, modelo_viga_carga_distribuida):
         """
-        Momento en empotramientos: |Ma| = |Mb| = q·L²/12.
+        Momento en empotramientos: |Ma| = |Mb| = q*L^2/12.
 
         Para q = 5 kN/m, L = 6 m:
-        |Ma| = |Mb| = 5 × 36 / 12 = 15 kNm
-
-        Nota: Para carga distribuida, el análisis puede requerir
-        más trabajo para implementar correctamente.
+        |Ma| = |Mb| = 5 * 36 / 12 = 15 kNm
         """
         resultado = analizar_estructura(modelo_viga_carga_distribuida)
+        assert resultado.exitoso, f"El analisis fallo: {resultado.errores}"
 
-        # Por ahora, solo verificamos que el análisis se complete
-        if not resultado.exitoso:
-            pytest.skip(f"Análisis con carga distribuida aún no completamente implementado: {resultado.errores}")
+        barra = modelo_viga_carga_distribuida.barras[0]
+        diagrama = resultado.diagramas_finales.get(barra.id)
+        assert diagrama is not None, "No se encontro diagrama para la barra"
+
+        M_A = diagrama.M(0.0)
+        M_B = diagrama.M(6.0)
+        # Teorico: q*L^2/12 = 5*36/12 = 15 kNm en cada empotramiento
+        assert abs(abs(M_A) - 15.0) < 0.5, (
+            f"|Ma| esperado 15 kNm, obtenido {abs(M_A):.3f} kNm"
+        )
+        assert abs(abs(M_B) - 15.0) < 0.5, (
+            f"|Mb| esperado 15 kNm, obtenido {abs(M_B):.3f} kNm"
+        )
 
 
 # =============================================================================
