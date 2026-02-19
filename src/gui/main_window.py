@@ -1,0 +1,919 @@
+"""
+Ventana principal de la aplicación.
+"""
+
+from PyQt6.QtWidgets import (
+    QMainWindow,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QSplitter,
+    QToolBar,
+    QStatusBar,
+    QMenuBar,
+    QMenu,
+    QMessageBox,
+    QFileDialog,
+    QDockWidget,
+    QLabel,
+    QScrollArea,
+    QDialog,
+)
+from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtGui import QAction, QIcon, QKeySequence
+
+from src.domain.model.modelo_estructural import ModeloEstructural
+from src.domain.entities.vinculo import Empotramiento, ApoyoFijo, Rodillo
+from src.domain.analysis.motor_fuerzas import MotorMetodoFuerzas, ResultadoAnalisis
+from src.gui.canvas.structure_canvas import StructureCanvas
+from src.gui.widgets.properties_panel import PropertiesPanel
+from src.gui.widgets.results_panel import ResultsPanel
+from src.gui.dialogs import (
+    CargaPuntualNudoDialog,
+    CargaPuntualBarraDialog,
+    CargaDistribuidaDialog,
+    RedundantesDialog,
+)
+
+
+class MainWindow(QMainWindow):
+    """
+    Ventana principal de la aplicación de análisis estructural.
+
+    Componentes:
+    - Menú superior con opciones de archivo, edición, análisis
+    - Barra de herramientas con acciones rápidas
+    - Canvas central para visualizar/editar la estructura
+    - Panel lateral de propiedades
+    - Panel inferior de resultados
+    - Barra de estado
+    """
+
+    def __init__(self):
+        super().__init__()
+
+        # Modelo estructural actual
+        self.modelo = ModeloEstructural("Nuevo proyecto")
+
+        # Configurar ventana
+        self._setup_window()
+        self._setup_menus()
+        self._setup_toolbar()
+        self._setup_central_widget()
+        self._setup_dock_widgets()
+        self._setup_statusbar()
+
+        # Estado inicial
+        self._update_title()
+
+    def _setup_window(self):
+        """Configura propiedades básicas de la ventana."""
+        self.setWindowTitle("Análisis Estructural - Método de las Fuerzas")
+        self.setMinimumSize(1024, 768)
+        self.resize(1400, 900)
+
+    def _setup_menus(self):
+        """Configura el menú principal."""
+        menubar = self.menuBar()
+
+        # ===== Menú Archivo =====
+        menu_archivo = menubar.addMenu("&Archivo")
+
+        action_nuevo = QAction("&Nuevo", self)
+        action_nuevo.setShortcut(QKeySequence.StandardKey.New)
+        action_nuevo.setStatusTip("Crear nuevo proyecto")
+        action_nuevo.triggered.connect(self._on_nuevo)
+        menu_archivo.addAction(action_nuevo)
+
+        action_abrir = QAction("&Abrir...", self)
+        action_abrir.setShortcut(QKeySequence.StandardKey.Open)
+        action_abrir.setStatusTip("Abrir proyecto existente")
+        action_abrir.triggered.connect(self._on_abrir)
+        menu_archivo.addAction(action_abrir)
+
+        action_guardar = QAction("&Guardar", self)
+        action_guardar.setShortcut(QKeySequence.StandardKey.Save)
+        action_guardar.setStatusTip("Guardar proyecto")
+        action_guardar.triggered.connect(self._on_guardar)
+        menu_archivo.addAction(action_guardar)
+
+        action_guardar_como = QAction("Guardar &como...", self)
+        action_guardar_como.setShortcut(QKeySequence.StandardKey.SaveAs)
+        action_guardar_como.triggered.connect(self._on_guardar_como)
+        menu_archivo.addAction(action_guardar_como)
+
+        menu_archivo.addSeparator()
+
+        action_exportar = QAction("&Exportar resultados...", self)
+        action_exportar.setStatusTip("Exportar diagramas y resultados")
+        action_exportar.triggered.connect(self._on_exportar)
+        menu_archivo.addAction(action_exportar)
+
+        menu_archivo.addSeparator()
+
+        action_salir = QAction("&Salir", self)
+        action_salir.setShortcut(QKeySequence.StandardKey.Quit)
+        action_salir.triggered.connect(self.close)
+        menu_archivo.addAction(action_salir)
+
+        # ===== Menú Edición =====
+        menu_edicion = menubar.addMenu("&Edición")
+
+        action_deshacer = QAction("&Deshacer", self)
+        action_deshacer.setShortcut(QKeySequence.StandardKey.Undo)
+        action_deshacer.setEnabled(False)  # TODO: implementar
+        menu_edicion.addAction(action_deshacer)
+
+        action_rehacer = QAction("&Rehacer", self)
+        action_rehacer.setShortcut(QKeySequence.StandardKey.Redo)
+        action_rehacer.setEnabled(False)
+        menu_edicion.addAction(action_rehacer)
+
+        menu_edicion.addSeparator()
+
+        action_eliminar = QAction("&Eliminar selección", self)
+        action_eliminar.setShortcut(QKeySequence.StandardKey.Delete)
+        action_eliminar.triggered.connect(self._on_eliminar)
+        menu_edicion.addAction(action_eliminar)
+
+        # ===== Menú Ver =====
+        menu_ver = menubar.addMenu("&Ver")
+
+        action_zoom_in = QAction("Acercar", self)
+        action_zoom_in.setShortcut(QKeySequence.StandardKey.ZoomIn)
+        action_zoom_in.triggered.connect(self._on_zoom_in)
+        menu_ver.addAction(action_zoom_in)
+
+        action_zoom_out = QAction("Alejar", self)
+        action_zoom_out.setShortcut(QKeySequence.StandardKey.ZoomOut)
+        action_zoom_out.triggered.connect(self._on_zoom_out)
+        menu_ver.addAction(action_zoom_out)
+
+        action_zoom_fit = QAction("Ajustar a ventana", self)
+        action_zoom_fit.setShortcut("Ctrl+0")
+        action_zoom_fit.triggered.connect(self._on_zoom_fit)
+        menu_ver.addAction(action_zoom_fit)
+
+        menu_ver.addSeparator()
+
+        self.action_mostrar_grilla = QAction("Mostrar grilla", self)
+        self.action_mostrar_grilla.setCheckable(True)
+        self.action_mostrar_grilla.setChecked(True)
+        self.action_mostrar_grilla.triggered.connect(self._on_toggle_grilla)
+        menu_ver.addAction(self.action_mostrar_grilla)
+
+        # ===== Menú Análisis =====
+        menu_analisis = menubar.addMenu("&Análisis")
+
+        action_selec_redundantes = QAction("Seleccionar &redundantes...", self)
+        action_selec_redundantes.setShortcut("F4")
+        action_selec_redundantes.setStatusTip("Seleccionar redundantes manual o automáticamente")
+        action_selec_redundantes.triggered.connect(self._on_seleccionar_redundantes)
+        menu_analisis.addAction(action_selec_redundantes)
+
+        menu_analisis.addSeparator()
+
+        action_resolver = QAction("&Resolver estructura", self)
+        action_resolver.setShortcut("F5")
+        action_resolver.setStatusTip("Ejecutar análisis por Método de las Fuerzas")
+        action_resolver.triggered.connect(self._on_resolver)
+        menu_analisis.addAction(action_resolver)
+
+        menu_analisis.addSeparator()
+
+        action_ver_diagramas = QAction("Ver &diagramas", self)
+        action_ver_diagramas.setShortcut("F6")
+        action_ver_diagramas.triggered.connect(self._on_ver_diagramas)
+        menu_analisis.addAction(action_ver_diagramas)
+
+        # ===== Menú Ayuda =====
+        menu_ayuda = menubar.addMenu("A&yuda")
+
+        action_acerca = QAction("&Acerca de...", self)
+        action_acerca.triggered.connect(self._on_acerca)
+        menu_ayuda.addAction(action_acerca)
+
+    def _setup_toolbar(self):
+        """Configura la barra de herramientas."""
+        toolbar = QToolBar("Herramientas principales")
+        toolbar.setMovable(False)
+        toolbar.setIconSize(QSize(24, 24))
+        self.addToolBar(toolbar)
+
+        # Herramientas de selección/creación
+        self.action_seleccionar = QAction("Seleccionar", self)
+        self.action_seleccionar.setCheckable(True)
+        self.action_seleccionar.setChecked(True)
+        self.action_seleccionar.setStatusTip("Modo selección (S)")
+        self.action_seleccionar.setShortcut("S")
+        toolbar.addAction(self.action_seleccionar)
+
+        self.action_crear_nudo = QAction("Crear Nudo", self)
+        self.action_crear_nudo.setCheckable(True)
+        self.action_crear_nudo.setStatusTip("Crear nudo (N)")
+        self.action_crear_nudo.setShortcut("N")
+        toolbar.addAction(self.action_crear_nudo)
+
+        self.action_crear_barra = QAction("Crear Barra", self)
+        self.action_crear_barra.setCheckable(True)
+        self.action_crear_barra.setStatusTip("Crear barra (B)")
+        self.action_crear_barra.setShortcut("B")
+        toolbar.addAction(self.action_crear_barra)
+
+        toolbar.addSeparator()
+
+        # Vínculos
+        self.action_empotramiento = QAction("Empotramiento", self)
+        self.action_empotramiento.setStatusTip("Asignar empotramiento al nudo seleccionado (E)")
+        self.action_empotramiento.setShortcut("E")
+        self.action_empotramiento.triggered.connect(lambda: self._on_asignar_vinculo("empotramiento"))
+        toolbar.addAction(self.action_empotramiento)
+
+        self.action_apoyo_fijo = QAction("Apoyo Fijo", self)
+        self.action_apoyo_fijo.setStatusTip("Asignar apoyo fijo al nudo seleccionado (A)")
+        self.action_apoyo_fijo.setShortcut("A")
+        self.action_apoyo_fijo.triggered.connect(lambda: self._on_asignar_vinculo("apoyo_fijo"))
+        toolbar.addAction(self.action_apoyo_fijo)
+
+        self.action_rodillo = QAction("Rodillo", self)
+        self.action_rodillo.setStatusTip("Asignar rodillo al nudo seleccionado (R)")
+        self.action_rodillo.setShortcut("R")
+        self.action_rodillo.triggered.connect(lambda: self._on_asignar_vinculo("rodillo"))
+        toolbar.addAction(self.action_rodillo)
+
+        toolbar.addSeparator()
+
+        # Cargas
+        self.action_carga_puntual = QAction("Carga Puntual", self)
+        self.action_carga_puntual.setStatusTip("Agregar carga puntual (P)")
+        self.action_carga_puntual.setShortcut("P")
+        self.action_carga_puntual.triggered.connect(self._on_agregar_carga_puntual)
+        toolbar.addAction(self.action_carga_puntual)
+
+        self.action_carga_distribuida = QAction("Carga Distribuida", self)
+        self.action_carga_distribuida.setStatusTip("Agregar carga distribuida (D)")
+        self.action_carga_distribuida.setShortcut("D")
+        self.action_carga_distribuida.triggered.connect(self._on_agregar_carga_distribuida)
+        toolbar.addAction(self.action_carga_distribuida)
+
+        toolbar.addSeparator()
+
+        # Análisis
+        self.action_resolver_toolbar = QAction("Resolver", self)
+        self.action_resolver_toolbar.setStatusTip("Resolver estructura (F5)")
+        self.action_resolver_toolbar.triggered.connect(self._on_resolver)
+        toolbar.addAction(self.action_resolver_toolbar)
+
+        # Conectar acciones de herramientas para modo exclusivo
+        self._setup_tool_actions()
+
+    def _setup_tool_actions(self):
+        """Configura las acciones de herramientas como grupo exclusivo."""
+        tool_actions = [
+            self.action_seleccionar,
+            self.action_crear_nudo,
+            self.action_crear_barra,
+        ]
+
+        for action in tool_actions:
+            action.triggered.connect(
+                lambda checked, a=action: self._on_tool_changed(a, checked)
+            )
+
+    def _on_tool_changed(self, action, checked):
+        """Maneja el cambio de herramienta activa."""
+        if checked:
+            # Desactivar otras herramientas
+            for other in [self.action_seleccionar, self.action_crear_nudo, self.action_crear_barra]:
+                if other != action:
+                    other.setChecked(False)
+
+            # Notificar al canvas
+            if hasattr(self, 'canvas'):
+                if action == self.action_seleccionar:
+                    self.canvas.set_mode("select")
+                elif action == self.action_crear_nudo:
+                    self.canvas.set_mode("create_node")
+                elif action == self.action_crear_barra:
+                    self.canvas.set_mode("create_bar")
+
+    def _setup_central_widget(self):
+        """Configura el widget central con el canvas."""
+        self.canvas = StructureCanvas(self.modelo)
+        self.canvas.selection_changed.connect(self._on_selection_changed)
+        self.canvas.model_changed.connect(self._on_model_changed)
+        self.setCentralWidget(self.canvas)
+
+    def _setup_dock_widgets(self):
+        """Configura los paneles acoplables."""
+        # Panel de propiedades (derecha) - con scroll
+        self.properties_panel = PropertiesPanel()
+        self.properties_panel.set_canvas(self.canvas)
+
+        # Conectar cambio de vínculo desde el panel
+        self.properties_panel.combo_vinculo.currentIndexChanged.connect(self._on_vinculo_combo_changed)
+        self.properties_panel.btn_aplicar.clicked.connect(self._on_aplicar_propiedades)
+
+        # Envolver en scroll area para paneles largos
+        scroll_props = QScrollArea()
+        scroll_props.setWidget(self.properties_panel)
+        scroll_props.setWidgetResizable(True)
+        scroll_props.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        dock_props = QDockWidget("Propiedades", self)
+        dock_props.setWidget(scroll_props)
+        dock_props.setMinimumWidth(300)
+        dock_props.setMaximumWidth(400)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock_props)
+
+        # Panel de resultados (abajo)
+        self.results_panel = ResultsPanel()
+        dock_results = QDockWidget("Resultados", self)
+        dock_results.setWidget(self.results_panel)
+        dock_results.setMinimumHeight(180)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, dock_results)
+
+    def _setup_statusbar(self):
+        """Configura la barra de estado."""
+        self.statusbar = QStatusBar()
+        self.setStatusBar(self.statusbar)
+
+        # Labels permanentes
+        self.label_coordenadas = QLabel("X: 0.00  Y: 0.00")
+        self.label_coordenadas.setMinimumWidth(200)
+        self.statusbar.addPermanentWidget(self.label_coordenadas)
+
+        self.label_gh = QLabel("GH: 0")
+        self.label_gh.setMinimumWidth(80)
+        self.statusbar.addPermanentWidget(self.label_gh)
+
+        self.label_elementos = QLabel("Nudos: 0  Barras: 0")
+        self.label_elementos.setMinimumWidth(150)
+        self.statusbar.addPermanentWidget(self.label_elementos)
+
+        self._update_statusbar()
+
+    def _update_title(self):
+        """Actualiza el título de la ventana."""
+        modificado = "*" if self.modelo.esta_modificado else ""
+        self.setWindowTitle(f"{self.modelo.nombre}{modificado} - Análisis Estructural")
+
+    def _update_statusbar(self):
+        """Actualiza la información en la barra de estado."""
+        self.label_gh.setText(f"GH: {self.modelo.grado_hiperestaticidad}")
+        self.label_elementos.setText(
+            f"Nudos: {self.modelo.num_nudos}  Barras: {self.modelo.num_barras}"
+        )
+
+    # =========================================================================
+    # SLOTS - Vínculos
+    # =========================================================================
+
+    def _on_asignar_vinculo(self, tipo_vinculo: str):
+        """Asigna un vínculo al nudo seleccionado."""
+        # Obtener nudos seleccionados
+        selected_nodes = self.canvas._selected_nodes
+        if not selected_nodes:
+            self.statusbar.showMessage("Seleccione un nudo primero", 3000)
+            return
+
+        for nudo_id in selected_nodes:
+            nudo = self.modelo.obtener_nudo(nudo_id)
+            if nudo:
+                if tipo_vinculo == "empotramiento":
+                    vinculo = Empotramiento(nudo_id)
+                elif tipo_vinculo == "apoyo_fijo":
+                    vinculo = ApoyoFijo(nudo_id)
+                elif tipo_vinculo == "rodillo":
+                    vinculo = Rodillo(nudo_id, direccion="Uy")
+                else:
+                    continue
+
+                self.modelo.asignar_vinculo(nudo_id, vinculo)
+
+        self._on_model_changed()
+        self._refresh_canvas()
+        self.statusbar.showMessage(f"Vínculo '{tipo_vinculo}' asignado", 3000)
+
+    def _on_agregar_carga_puntual(self):
+        """Muestra diálogo para agregar una carga puntual."""
+        # Crear un submenú para elegir tipo de carga puntual
+        from PyQt6.QtWidgets import QMenu
+
+        menu = QMenu(self)
+        action_nudo = menu.addAction("Carga en Nudo")
+        action_barra = menu.addAction("Carga en Barra")
+
+        # Mostrar menú en posición del cursor
+        from PyQt6.QtGui import QCursor
+        action = menu.exec(QCursor.pos())
+
+        if action == action_nudo:
+            self._agregar_carga_puntual_nudo()
+        elif action == action_barra:
+            self._agregar_carga_puntual_barra()
+
+    def _agregar_carga_puntual_nudo(self):
+        """Abre diálogo para agregar carga puntual en nudo."""
+        if self.modelo.num_nudos == 0:
+            QMessageBox.information(
+                self,
+                "Sin nudos",
+                "Primero debe crear nudos en la estructura."
+            )
+            return
+
+        dialog = CargaPuntualNudoDialog(self.modelo, self)
+
+        if dialog.exec():
+            if dialog.carga_creada:
+                self.modelo.agregar_carga(dialog.carga_creada)
+                self._on_model_changed()
+                self._refresh_canvas()
+                self.statusbar.showMessage(
+                    f"Carga puntual agregada en Nudo {dialog.carga_creada.nudo.id}",
+                    3000
+                )
+
+    def _agregar_carga_puntual_barra(self):
+        """Abre diálogo para agregar carga puntual en barra."""
+        if self.modelo.num_barras == 0:
+            QMessageBox.information(
+                self,
+                "Sin barras",
+                "Primero debe crear barras en la estructura."
+            )
+            return
+
+        dialog = CargaPuntualBarraDialog(self.modelo, self)
+
+        if dialog.exec():
+            if dialog.carga_creada:
+                self.modelo.agregar_carga(dialog.carga_creada)
+                self._on_model_changed()
+                self._refresh_canvas()
+                self.statusbar.showMessage(
+                    f"Carga puntual agregada en Barra {dialog.carga_creada.barra.id}",
+                    3000
+                )
+
+    def _on_agregar_carga_distribuida(self):
+        """Abre diálogo para agregar carga distribuida."""
+        if self.modelo.num_barras == 0:
+            QMessageBox.information(
+                self,
+                "Sin barras",
+                "Primero debe crear barras en la estructura."
+            )
+            return
+
+        dialog = CargaDistribuidaDialog(self.modelo, self)
+
+        if dialog.exec():
+            if dialog.carga_creada:
+                self.modelo.agregar_carga(dialog.carga_creada)
+                self._on_model_changed()
+                self._refresh_canvas()
+                tipo_carga = "uniforme" if dialog.carga_creada.es_uniforme else "distribuida"
+                self.statusbar.showMessage(
+                    f"Carga {tipo_carga} agregada en Barra {dialog.carga_creada.barra.id}",
+                    3000
+                )
+
+    def _on_vinculo_combo_changed(self, index):
+        """Maneja el cambio en el combobox de vínculo."""
+        # Solo aplicar si hay un nudo seleccionado
+        if not self.properties_panel._selected_items:
+            return
+
+        tipo, id_ = self.properties_panel._selected_items[0]
+        if tipo != "nudo":
+            return
+
+        # Mapear índice a tipo de vínculo
+        vinculo_map = {
+            0: None,  # Sin vínculo
+            1: "empotramiento",
+            2: "apoyo_fijo",
+            3: "rodillo_h",
+            4: "rodillo_v",
+            5: "guia_h",
+            6: "guia_v",
+        }
+
+        tipo_vinculo = vinculo_map.get(index)
+
+        nudo = self.modelo.obtener_nudo(id_)
+        if not nudo:
+            return
+
+        if tipo_vinculo is None:
+            # Remover vínculo
+            nudo.vinculo = None
+        elif tipo_vinculo == "empotramiento":
+            self.modelo.asignar_vinculo(id_, Empotramiento(id_))
+        elif tipo_vinculo == "apoyo_fijo":
+            self.modelo.asignar_vinculo(id_, ApoyoFijo(id_))
+        elif tipo_vinculo == "rodillo_h":
+            self.modelo.asignar_vinculo(id_, Rodillo(id_, direccion="Uy"))
+        elif tipo_vinculo == "rodillo_v":
+            self.modelo.asignar_vinculo(id_, Rodillo(id_, direccion="Ux"))
+        # TODO: implementar guías
+
+        self._on_model_changed()
+        self._refresh_canvas()
+
+    def _on_aplicar_propiedades(self):
+        """Aplica los cambios de propiedades al elemento seleccionado."""
+        if not self.properties_panel._selected_items:
+            return
+
+        tipo, id_ = self.properties_panel._selected_items[0]
+
+        if tipo == "nudo":
+            nudo = self.modelo.obtener_nudo(id_)
+            if nudo:
+                # Actualizar coordenadas
+                nudo.x = self.properties_panel.spin_nudo_x.value()
+                nudo.y = self.properties_panel.spin_nudo_y.value()
+                nudo.nombre = self.properties_panel.edit_nudo_nombre.text() or None
+
+        elif tipo == "barra":
+            barra = self.modelo.obtener_barra(id_)
+            if barra:
+                # Actualizar articulaciones
+                if self.properties_panel.btn_art_i.isChecked() != barra.articulacion_i:
+                    if self.properties_panel.btn_art_i.isChecked():
+                        self.modelo.agregar_articulacion(id_, "i")
+                    else:
+                        self.modelo.remover_articulacion(id_, "i")
+
+                if self.properties_panel.btn_art_j.isChecked() != barra.articulacion_j:
+                    if self.properties_panel.btn_art_j.isChecked():
+                        self.modelo.agregar_articulacion(id_, "j")
+                    else:
+                        self.modelo.remover_articulacion(id_, "j")
+
+        self._on_model_changed()
+        self._refresh_canvas()
+        self.statusbar.showMessage("Propiedades aplicadas", 2000)
+
+    def _refresh_canvas(self):
+        """Fuerza el repintado del canvas."""
+        self.canvas.viewport().update()
+
+    # =========================================================================
+    # SLOTS - Acciones del menú
+    # =========================================================================
+
+    def _on_nuevo(self):
+        """Crea un nuevo proyecto."""
+        if self.modelo.esta_modificado:
+            resp = QMessageBox.question(
+                self,
+                "Guardar cambios",
+                "¿Desea guardar los cambios antes de crear un nuevo proyecto?",
+                QMessageBox.StandardButton.Save |
+                QMessageBox.StandardButton.Discard |
+                QMessageBox.StandardButton.Cancel
+            )
+            if resp == QMessageBox.StandardButton.Save:
+                self._on_guardar()
+            elif resp == QMessageBox.StandardButton.Cancel:
+                return
+
+        self.modelo = ModeloEstructural("Nuevo proyecto")
+        self.canvas.set_model(self.modelo)
+        self.properties_panel.set_canvas(self.canvas)
+        self._update_title()
+        self._update_statusbar()
+        self._refresh_canvas()
+        self.statusbar.showMessage("Nuevo proyecto creado", 3000)
+
+    def _on_abrir(self):
+        """Abre un proyecto existente."""
+        filename, _ = QFileDialog.getOpenFileName(
+            self,
+            "Abrir proyecto",
+            "",
+            "Proyectos (*.json);;Todos los archivos (*)"
+        )
+        if filename:
+            # TODO: implementar carga de archivo
+            self.statusbar.showMessage(f"Abrir: {filename}", 3000)
+
+    def _on_guardar(self):
+        """Guarda el proyecto actual."""
+        # TODO: implementar guardado
+        self.modelo.marcar_guardado()
+        self._update_title()
+        self.statusbar.showMessage("Proyecto guardado", 3000)
+
+    def _on_guardar_como(self):
+        """Guarda el proyecto con un nuevo nombre."""
+        filename, _ = QFileDialog.getSaveFileName(
+            self,
+            "Guardar proyecto como",
+            "",
+            "Proyectos (*.json)"
+        )
+        if filename:
+            # TODO: implementar guardado
+            self.statusbar.showMessage(f"Guardado: {filename}", 3000)
+
+    def _on_exportar(self):
+        """Exporta los resultados."""
+        # TODO: implementar exportación
+        self.statusbar.showMessage("Exportar resultados...", 3000)
+
+    def _on_eliminar(self):
+        """Elimina los elementos seleccionados."""
+        if hasattr(self, 'canvas'):
+            self.canvas.delete_selected()
+            self._refresh_canvas()
+
+    def _on_zoom_in(self):
+        """Acerca el zoom."""
+        if hasattr(self, 'canvas'):
+            self.canvas.zoom_in()
+
+    def _on_zoom_out(self):
+        """Aleja el zoom."""
+        if hasattr(self, 'canvas'):
+            self.canvas.zoom_out()
+
+    def _on_zoom_fit(self):
+        """Ajusta el zoom para ver toda la estructura."""
+        if hasattr(self, 'canvas'):
+            self.canvas.zoom_fit()
+
+    def _on_toggle_grilla(self, checked):
+        """Muestra/oculta la grilla."""
+        if hasattr(self, 'canvas'):
+            self.canvas.set_grid_visible(checked)
+
+
+    def _on_seleccionar_redundantes(self):
+        """Abre el diálogo para seleccionar redundantes."""
+        # Verificar que hay estructura
+        if self.modelo.num_nudos == 0 or self.modelo.num_barras == 0:
+            QMessageBox.warning(
+                self,
+                "Estructura vacía",
+                "No hay elementos en la estructura. Cree nudos y barras primero."
+            )
+            return
+
+        # Calcular grado de hiperestaticidad
+        gh = self.modelo.grado_hiperestaticidad
+
+        if gh < 0:
+            QMessageBox.warning(
+                self,
+                "Estructura Hipostática",
+                f"La estructura es hipostática (GH={gh}).\n"
+                f"Faltan {-gh} vínculos para que sea estable."
+            )
+            return
+
+        if gh == 0:
+            QMessageBox.information(
+                self,
+                "Estructura Isostática",
+                "La estructura es isostática (GH=0).\n"
+                "No es necesario seleccionar redundantes."
+            )
+            return
+
+        # Abrir diálogo de selección
+        dialog = RedundantesDialog(self.modelo, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            redundantes = dialog.obtener_redundantes()
+            if redundantes:
+                # Guardar redundantes en el modelo
+                self.modelo.redundantes_seleccionados = redundantes
+                self.statusbar.showMessage(
+                    f"Seleccionados {len(redundantes)} redundantes: " +
+                    ", ".join(r.descripcion for r in redundantes),
+                    5000
+                )
+                QMessageBox.information(
+                    self,
+                    "Redundantes Seleccionados",
+                    f"Se seleccionaron {len(redundantes)} redundantes:\n\n" +
+                    "\n".join(f"{i}. {r.descripcion}" for i, r in enumerate(redundantes, 1)) +
+                    "\n\nAhora puede resolver la estructura (F5)."
+                )
+
+    def _on_resolver(self):
+        """Ejecuta el análisis de la estructura."""
+        # Verificar que hay estructura
+        if self.modelo.num_nudos == 0 or self.modelo.num_barras == 0:
+            QMessageBox.warning(
+                self,
+                "Estructura vacía",
+                "No hay elementos en la estructura."
+            )
+            return
+
+        gh = self.modelo.grado_hiperestaticidad
+
+        if gh < 0:
+            QMessageBox.warning(
+                self,
+                "Estructura Hipostática",
+                f"La estructura es hipostática (GH={gh}).\n"
+                "No se puede resolver."
+            )
+            return
+
+        if gh > 0:
+            # Verificar si se seleccionaron redundantes
+            if not hasattr(self.modelo, 'redundantes_seleccionados') or \
+               not self.modelo.redundantes_seleccionados:
+                # Si no, abrir diálogo
+                resp = QMessageBox.question(
+                    self,
+                    "Seleccionar Redundantes",
+                    f"La estructura es hiperestática (GH={gh}).\n"
+                    "¿Desea seleccionar redundantes automáticamente?",
+                    QMessageBox.StandardButton.Yes |
+                    QMessageBox.StandardButton.No |
+                    QMessageBox.StandardButton.Cancel
+                )
+
+                if resp == QMessageBox.StandardButton.Yes:
+                    # Selección automática
+                    from src.domain.analysis.redundantes import SelectorRedundantes
+                    selector = SelectorRedundantes(self.modelo)
+                    try:
+                        redundantes = selector.seleccionar_automatico()
+                        self.modelo.redundantes_seleccionados = redundantes
+                        self.statusbar.showMessage(
+                            f"Seleccionados automáticamente: " +
+                            ", ".join(r.descripcion for r in redundantes),
+                            5000
+                        )
+                    except ValueError as e:
+                        QMessageBox.critical(self, "Error", str(e))
+                        return
+
+                elif resp == QMessageBox.StandardButton.No:
+                    # Abrir diálogo manual
+                    dialog = RedundantesDialog(self.modelo, self)
+                    if dialog.exec() == QDialog.DialogCode.Accepted:
+                        redundantes = dialog.obtener_redundantes()
+                        self.modelo.redundantes_seleccionados = redundantes
+                    else:
+                        return  # Usuario canceló
+                else:
+                    return  # Usuario canceló
+
+        # Ejecutar análisis
+        self.statusbar.showMessage("Resolviendo estructura...", 0)
+
+        try:
+            # Crear motor de análisis
+            redundantes_manuales = None
+            if hasattr(self.modelo, 'redundantes_seleccionados') and self.modelo.redundantes_seleccionados:
+                redundantes_manuales = self.modelo.redundantes_seleccionados
+
+            motor = MotorMetodoFuerzas(
+                modelo=self.modelo,
+                seleccion_manual_redundantes=redundantes_manuales,
+                incluir_deformacion_axial=False,  # Solo flexión por ahora
+                incluir_deformacion_cortante=False,
+            )
+
+            # Resolver
+            resultado = motor.resolver()
+
+            if resultado.exitoso:
+                # Actualizar panel de resultados
+                self.results_panel.mostrar_resultado(resultado)
+
+                # Actualizar canvas con diagramas
+                if hasattr(self.canvas, 'set_resultado'):
+                    self.canvas.set_resultado(resultado)
+
+                self._refresh_canvas()
+
+                # Mensaje de éxito
+                msg = f"✓ Análisis completado exitosamente\n\n"
+                msg += f"Grado de hiperestaticidad: GH = {resultado.grado_hiperestaticidad}\n\n"
+
+                if resultado.redundantes:
+                    msg += "Redundantes resueltos:\n"
+                    for i, red in enumerate(resultado.redundantes, 1):
+                        valor = resultado.Xi(i)
+                        msg += f"  X{i} = {valor:+.4f} ({red.descripcion})\n"
+                    msg += "\n"
+
+                msg += "Reacciones calculadas:\n"
+                for nudo in self.modelo.nudos:
+                    if nudo.tiene_vinculo:
+                        Rx, Ry, Mz = resultado.obtener_reaccion(nudo.id)
+                        msg += f"  Nudo {nudo.id}: Rx={Rx:+.3f} kN, Ry={Ry:+.3f} kN, Mz={Mz:+.3f} kNm\n"
+
+                if resultado.advertencias:
+                    msg += f"\n⚠️ Advertencias ({len(resultado.advertencias)}):\n"
+                    for adv in resultado.advertencias[:3]:  # Primeras 3
+                        msg += f"  • {adv}\n"
+
+                QMessageBox.information(self, "Análisis Completado", msg)
+                self.statusbar.showMessage("Análisis completado exitosamente", 5000)
+
+            else:
+                # Error en análisis
+                msg_error = "Error durante el análisis:\n\n"
+                msg_error += "\n".join(f"• {e}" for e in resultado.errores)
+
+                QMessageBox.critical(self, "Error en Análisis", msg_error)
+                self.statusbar.showMessage("Error en análisis", 5000)
+
+        except Exception as e:
+            import traceback
+            error_detail = traceback.format_exc()
+
+            QMessageBox.critical(
+                self,
+                "Error Inesperado",
+                f"Ocurrió un error inesperado durante el análisis:\n\n{str(e)}\n\n"
+                f"Detalles técnicos:\n{error_detail[:500]}"
+            )
+            self.statusbar.showMessage("Error en análisis", 5000)
+
+    def _on_ver_diagramas(self):
+        """Muestra los diagramas de esfuerzos."""
+        if hasattr(self, 'canvas'):
+            self.canvas.toggle_diagrams()
+            self._refresh_canvas()
+
+    def _on_acerca(self):
+        """Muestra información sobre la aplicación."""
+        QMessageBox.about(
+            self,
+            "Acerca de",
+            "<h3>Análisis Estructural</h3>"
+            "<p>Sistema de análisis de pórticos planos 2D</p>"
+            "<p>Método de las Fuerzas (Flexibilidad)</p>"
+            "<p><b>Versión:</b> 1.0.0</p>"
+        )
+
+    # =========================================================================
+    # SLOTS - Eventos del canvas
+    # =========================================================================
+
+    def _on_selection_changed(self, selected_items):
+        """Maneja el cambio de selección."""
+        self.properties_panel.update_selection(selected_items)
+
+        # Cargar el vínculo actual en el combo
+        if selected_items and len(selected_items) == 1:
+            tipo, id_ = selected_items[0]
+            if tipo == "nudo":
+                nudo = self.modelo.obtener_nudo(id_)
+                if nudo:
+                    # Bloquear señales para evitar bucle
+                    self.properties_panel.combo_vinculo.blockSignals(True)
+
+                    if not nudo.tiene_vinculo:
+                        self.properties_panel.combo_vinculo.setCurrentIndex(0)
+                    elif isinstance(nudo.vinculo, Empotramiento):
+                        self.properties_panel.combo_vinculo.setCurrentIndex(1)
+                    elif isinstance(nudo.vinculo, ApoyoFijo):
+                        self.properties_panel.combo_vinculo.setCurrentIndex(2)
+                    elif isinstance(nudo.vinculo, Rodillo):
+                        if nudo.vinculo.direccion == "Uy":
+                            self.properties_panel.combo_vinculo.setCurrentIndex(3)
+                        else:
+                            self.properties_panel.combo_vinculo.setCurrentIndex(4)
+
+                    self.properties_panel.combo_vinculo.blockSignals(False)
+
+    def _on_model_changed(self):
+        """Maneja cambios en el modelo."""
+        self._update_title()
+        self._update_statusbar()
+        self._refresh_canvas()
+
+    def closeEvent(self, event):
+        """Maneja el cierre de la ventana."""
+        if self.modelo.esta_modificado:
+            resp = QMessageBox.question(
+                self,
+                "Guardar cambios",
+                "¿Desea guardar los cambios antes de salir?",
+                QMessageBox.StandardButton.Save |
+                QMessageBox.StandardButton.Discard |
+                QMessageBox.StandardButton.Cancel
+            )
+            if resp == QMessageBox.StandardButton.Save:
+                self._on_guardar()
+                event.accept()
+            elif resp == QMessageBox.StandardButton.Discard:
+                event.accept()
+            else:
+                event.ignore()
+        else:
+            event.accept()

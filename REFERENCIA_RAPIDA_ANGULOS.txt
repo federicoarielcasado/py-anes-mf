@@ -1,0 +1,138 @@
+╔════════════════════════════════════════════════════════════════════╗
+║          REFERENCIA RÁPIDA: ÁNGULOS DE CARGA EN BARRAS            ║
+║                  Sistema de Coordenadas Locales                    ║
+╚════════════════════════════════════════════════════════════════════╝
+
+┌────────────────────────────────────────────────────────────────────┐
+│  REGLA DE ORO: El ángulo se mide desde el eje local (i→j)         │
+│                                                                     │
+│     0° = A lo largo de la barra                                    │
+│   +90° = Rotación HORARIA (⟲)                                      │
+│   -90° = Rotación ANTIHORARIA (⟳)                                  │
+└────────────────────────────────────────────────────────────────────┘
+
+
+═══════════════════════════════════════════════════════════════════════
+  CASO 1: BARRA HORIZONTAL (de izquierda → derecha)
+═══════════════════════════════════════════════════════════════════════
+
+         -90° ↑ (antihorario)
+              |
+    i ========|======== j   (0° →)
+              |
+         +90° ↓ (horario)
+
+    ╔════════════════════════════════════════════════╗
+    ║  Carga deseada          │  Ángulo a usar       ║
+    ╠════════════════════════════════════════════════╣
+    ║  ↓ Hacia ABAJO          │     +90°            ║
+    ║  ↑ Hacia ARRIBA         │     -90°            ║
+    ║  → Horizontal DERECHA   │       0°            ║
+    ║  ← Horizontal IZQUIERDA │     180°            ║
+    ╚════════════════════════════════════════════════╝
+
+
+═══════════════════════════════════════════════════════════════════════
+  CASO 2: BARRA VERTICAL (de abajo ↑ arriba)
+═══════════════════════════════════════════════════════════════════════
+
+              j
+         -90° | ← 0° ↑
+              |
+              |
+              i → +90°
+
+    ╔════════════════════════════════════════════════╗
+    ║  Carga deseada          │  Ángulo a usar       ║
+    ╠════════════════════════════════════════════════╣
+    ║  → Horizontal DERECHA   │     +90°            ║
+    ║  ← Horizontal IZQUIERDA │     -90°            ║
+    ║  ↑ Vertical ARRIBA      │       0°            ║
+    ║  ↓ Vertical ABAJO       │     180°            ║
+    ╚════════════════════════════════════════════════╝
+
+
+═══════════════════════════════════════════════════════════════════════
+  OPCIONES DEL DIÁLOGO
+═══════════════════════════════════════════════════════════════════════
+
+    → A lo largo de la barra (0°)
+      • Carga paralela al eje de la barra
+      • Uso: Cargas axiales (tracción/compresión)
+
+    ⟲ Perpendicular horaria (+90°)
+      • Rotación 90° en sentido horario desde la barra
+      • Uso: Peso propio en barra horizontal
+      • Resultado: ↓ en barra horizontal (→)
+
+    ⟳ Perpendicular antihoraria (-90°)
+      • Rotación 90° en sentido antihorario desde la barra
+      • Uso: Reacciones, sustentación
+      • Resultado: ↑ en barra horizontal (→)
+
+    ← Opuesta a la barra (180°)
+      • Paralela pero sentido contrario
+      • Uso: Cargas de empuje
+
+    Diagonal +45° / -45°
+      • Cargas inclinadas combinadas
+
+
+═══════════════════════════════════════════════════════════════════════
+  MNEMOTECNIA
+═══════════════════════════════════════════════════════════════════════
+
+    Imagina que ESTÁS PARADO SOBRE LA BARRA mirando de i → j
+
+         TU DERECHA = +90°
+         TU IZQUIERDA = -90°
+
+
+═══════════════════════════════════════════════════════════════════════
+  VERIFICACIÓN
+═══════════════════════════════════════════════════════════════════════
+
+    ✓ Después de aplicar la carga, VERIFICA VISUALMENTE en el canvas
+    ✓ La flecha debe apuntar en la dirección física correcta
+    ✓ Si está invertida:
+        - Cambia el signo: +90° ↔ -90°
+        - O usa el ángulo opuesto: 180° + ángulo
+
+
+═══════════════════════════════════════════════════════════════════════
+  EJEMPLOS COMUNES
+═══════════════════════════════════════════════════════════════════════
+
+    PESO PROPIO (gravedad):
+        Barra horizontal (→):  +90° → ↓
+        Barra vertical (↑):    180° → ↓
+
+    VIENTO HORIZONTAL:
+        Barra vertical (↑):    +90° → →
+        Barra horizontal (→):  -90° → ↑ (o +90° → ↓)
+
+    CARGA AXIAL:
+        Tracción:              0°   → →
+        Compresión:            180° → ←
+
+
+═══════════════════════════════════════════════════════════════════════
+  ¡IMPORTANTE!
+═══════════════════════════════════════════════════════════════════════
+
+    Para BARRA HORIZONTAL (i→j apunta a la derecha):
+
+        ╔═══════════════════════════════════════════╗
+        ║  Quieres carga HACIA ABAJO → Usa +90°    ║
+        ║  Quieres carga HACIA ARRIBA → Usa -90°   ║
+        ╚═══════════════════════════════════════════╝
+
+
+═══════════════════════════════════════════════════════════════════════
+  CONTACTO
+═══════════════════════════════════════════════════════════════════════
+
+    Ver documentación completa: SISTEMA_COORDENADAS_LOCALES.md
+    Ejemplo práctico: EJEMPLO_GH1_COMPLETO.md
+
+═══════════════════════════════════════════════════════════════════════
