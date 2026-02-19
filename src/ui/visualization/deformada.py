@@ -76,7 +76,7 @@ def graficar_deformada(
     _dibujar_estructura_deformada(modelo, resultado, ax, factor_escala, n_puntos)
 
     # Configurar ejes
-    ax.set_aspect('equal', adjustable='datalim')
+    ax.set_aspect('equal', adjustable='box')
     ax.grid(True, alpha=0.3, linestyle='--')
     ax.set_xlabel('X [m]', fontsize=10)
     ax.set_ylabel('Y [m]', fontsize=10)
@@ -227,12 +227,15 @@ def _dibujar_estructura_deformada(
         _dibujar_barra_deformada(barra, resultado, ax, factor_escala, n_puntos)
 
     # Dibujar nudos deformados
-    # NOTA: Esta es una aproximación. Los desplazamientos nodales reales
-    # deberían calcularse desde la solución del sistema global.
+    # Calculamos la posición deformada del nudo tomando el extremo de cada barra conectada
+    # y promediando si hay varias (garantiza compatibilidad visual entre barras contiguas).
+    posiciones_deformadas = _calcular_posiciones_nudos_deformados(
+        modelo, resultado, factor_escala, n_puntos
+    )
     for nudo in modelo.nudos:
-        # Por ahora, usar posiciones originales (sin desplazamiento nodal calculado)
+        xd, yd = posiciones_deformadas.get(nudo.id, (nudo.x, nudo.y))
         ax.plot(
-            nudo.x, nudo.y, 'o',
+            xd, yd, 'o',
             color=COLORES["nudo_deformado"],
             markersize=7,
             zorder=15,
@@ -320,6 +323,85 @@ def _dibujar_barra_deformada(
         zorder=8,
         solid_capstyle='round',
     )
+
+
+def _calcular_posiciones_nudos_deformados(
+    modelo,
+    resultado,
+    factor_escala: float,
+    n_puntos: int,
+) -> dict:
+    """
+    Calcula las posiciones deformadas de cada nudo.
+
+    Para cada nudo, recorre las barras conectadas y obtiene la posición
+    del extremo de la barra que coincide con ese nudo (calculada con la
+    misma lógica de integración doble que _dibujar_barra_deformada).
+    Si varias barras convergen en un nudo, promedia las estimaciones.
+
+    Args:
+        modelo: Modelo estructural
+        resultado: Resultado del análisis
+        factor_escala: Factor de exageración
+        n_puntos: Puntos usados en la integración
+
+    Returns:
+        Diccionario {nudo_id: (x_deformado, y_deformado)}
+    """
+    from collections import defaultdict
+
+    acumulado = defaultdict(list)  # nudo_id → lista de (x, y)
+
+    for barra in modelo.barras:
+        L = barra.L
+        EI = barra.material.E * barra.seccion.Iz
+
+        x_local = np.linspace(0, L, n_puntos)
+        M_vals = np.array([resultado.M(barra.id, x) for x in x_local])
+
+        if EI < 1e-10:
+            curvatura = np.zeros_like(M_vals)
+        else:
+            curvatura = M_vals / EI
+
+        dx_int = L / (n_puntos - 1)
+
+        # Primera integración: curvatura → rotación (θ(0) = 0)
+        theta = np.zeros(n_puntos)
+        for k in range(1, n_puntos):
+            theta[k] = theta[k - 1] + curvatura[k] * dx_int
+
+        # Segunda integración: rotación → deflexión perpendicular (v(0) = 0)
+        v_local = np.zeros(n_puntos)
+        for k in range(1, n_puntos):
+            v_local[k] = v_local[k - 1] + theta[k] * dx_int
+
+        angulo = barra.angulo
+        cos_a = np.cos(angulo)
+        sin_a = np.sin(angulo)
+        perp_x = -sin_a
+        perp_y = cos_a
+
+        # Posición deformada del extremo i (índice 0)
+        v_i_scaled = v_local[0] * factor_escala
+        xi_def = barra.nudo_i.x + v_i_scaled * perp_x
+        yi_def = barra.nudo_i.y + v_i_scaled * perp_y
+        acumulado[barra.nudo_i.id].append((xi_def, yi_def))
+
+        # Posición deformada del extremo j (índice -1)
+        v_j_scaled = v_local[-1] * factor_escala
+        xj_def = barra.nudo_j.x + v_j_scaled * perp_x
+        yj_def = barra.nudo_j.y + v_j_scaled * perp_y
+        acumulado[barra.nudo_j.id].append((xj_def, yj_def))
+
+    # Promediar si varias barras estimaron la posición del mismo nudo
+    resultado_final = {}
+    for nudo_id, posiciones in acumulado.items():
+        x_prom = sum(p[0] for p in posiciones) / len(posiciones)
+        y_prom = sum(p[1] for p in posiciones) / len(posiciones)
+        resultado_final[nudo_id] = (x_prom, y_prom)
+
+    return resultado_final
 
 
 def graficar_comparacion_deformadas(

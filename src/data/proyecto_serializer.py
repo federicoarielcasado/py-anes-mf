@@ -287,7 +287,9 @@ def _dict_a_seccion(s_d: Dict[str, Any]) -> Optional[Seccion]:
         else:
             # Sección genérica con A y Jz
             return Seccion(nombre=nombre, A=s_d["A"], Jz=s_d["Jz"], h=s_d.get("h", 0.0))
-    except Exception:
+    except (KeyError, TypeError, ValueError) as exc:
+        import warnings
+        warnings.warn(f"No se pudo reconstruir la sección '{nombre}' ({tipo}): {exc}")
         return None
 
 
@@ -364,6 +366,7 @@ def _dict_a_carga(c_d: Dict[str, Any], nudos: Dict[int, Nudo], barras: Dict[int,
                 delta_y=c_d.get("delta_y", 0.0),
                 delta_theta=c_d.get("delta_theta", 0.0),
             )
-    except Exception:
-        pass
+    except (KeyError, TypeError, ValueError) as exc:
+        import warnings
+        warnings.warn(f"No se pudo reconstruir la carga tipo '{tipo}': {exc}")
     return None

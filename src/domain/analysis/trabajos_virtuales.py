@@ -162,7 +162,7 @@ class CalculadorFlexibilidad:
         # Calcular condicionamiento
         try:
             condicionamiento = np.linalg.cond(self._F)
-        except:
+        except np.linalg.LinAlgError:
             condicionamiento = float('inf')
 
         return CoeficientesFlexibilidad(
@@ -367,7 +367,7 @@ class CalculadorFlexibilidad:
 
         try:
             condicionamiento = np.linalg.cond(self._F)
-        except:
+        except np.linalg.LinAlgError:
             condicionamiento = float('inf')
 
         return CoeficientesFlexibilidad(
