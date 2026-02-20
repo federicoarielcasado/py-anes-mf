@@ -12,10 +12,10 @@
 - Ejemplo funcional: `ejemplo_carga_termica.py`
 - 20 tests unitarios pasando (100%)
 
-⏳ **Pendiente**:
-- Integración en el motor de fuerzas (`motor_fuerzas.py`)
-- Cálculo de términos independientes e₀ᵢ con efectos térmicos
-- Validación con casos de literatura
+✅ **También implementado**:
+- Integración en el motor de fuerzas: función `_calcular_e0i_termico()` en `trabajos_virtuales.py`
+- Cálculo de términos independientes e₀ᵢ con ΔT uniforme y gradiente lineal
+- Validación con casos clásicos: `tests/unit/test_carga_termica.py` (20/20 tests)
 
 ## Fundamento Teórico
 
@@ -251,10 +251,10 @@ def ensamblar_sistema_compatibilidad(
 1. ✅ Implementar clase `CargaTermica` → **COMPLETADO**
 2. ✅ Crear ejemplo demostrativo → **COMPLETADO**
 3. ✅ Crear tests unitarios → **COMPLETADO** (20/20 pasando)
-4. ⏳ Implementar `calcular_trabajo_virtual_termico()` en motor
-5. ⏳ Modificar `calcular_termino_independiente()` para incluir térmicos
-6. ⏳ Validar con casos de literatura (viga biempotrada con ΔT)
-7. ⏳ Crear test de integración end-to-end
+4. ✅ Implementar `_calcular_e0i_termico()` en `trabajos_virtuales.py` → **COMPLETADO**
+5. ✅ Incluir efectos térmicos en ensamblado del SECE → **COMPLETADO**
+6. ✅ Validar con casos de literatura → **COMPLETADO** (20/20 tests unitarios)
+7. ⏳ Crear test de integración end-to-end (análisis hiperestático completo con ΔT)
 
 ## Ejemplo de Uso Futuro
 

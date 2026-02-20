@@ -8,16 +8,26 @@ Este documento describe cómo usar el módulo de visualización para generar dia
 - Diagramas de momentos flectores (M)
 - Diagramas de esfuerzos cortantes (V)
 - Diagramas de esfuerzos axiles (N)
-- Visualización combinada de los tres diagramas
-- Exportación a PNG de alta resolución
+- Visualización combinada de los tres diagramas (`diagramas.py`)
+- Exportación a PNG de alta resolución (matplotlib savefig 300 dpi)
 - Escala automática
-- Visualización de geometría y vínculos
+- Visualización de geometría y vínculos (`geometria.py`)
+- Deformada elástica exagerada con escala automática (`deformada.py`)
 
 ⏳ **Pendiente**:
-- Deformada exagerada
-- Exportación a PDF vectorial
+- Reportes PDF completos con ReportLab (profesional, con tabla de resultados)
 - Animación de superposición (M0 + ΣXi·Mi)
-- Visualización interactiva (zoom, pan)
+- Integración de visualización dentro de la GUI PyQt6 (actualmente solo matplotlib standalone)
+
+## Módulos disponibles
+
+| Módulo | Archivo | Función principal |
+|--------|---------|------------------|
+| Diagramas M/V/N | `src/ui/visualization/diagramas.py` | `graficar_diagramas_combinados()` |
+| Geometría estructural | `src/ui/visualization/geometria.py` | `graficar_geometria()` |
+| Deformada elástica | `src/ui/visualization/deformada.py` | `graficar_deformada()` |
+
+---
 
 ## Uso Básico
 
@@ -106,6 +116,66 @@ Este ejemplo:
 3. Resuelve por el método de las fuerzas
 4. Genera diagramas combinados M, V, N
 5. Guarda imagen PNG de alta calidad
+
+## Visualización de Geometría
+
+**Módulo:** `src/ui/visualization/geometria.py`
+
+Dibuja la estructura no deformada con todos sus elementos gráficos:
+
+```python
+from src.ui.visualization.geometria import graficar_geometria
+import matplotlib.pyplot as plt
+
+fig, ax = graficar_geometria(modelo)
+plt.show()
+```
+
+**Elementos representados:**
+- Barras (líneas grises con numeración)
+- Nudos (puntos con ID)
+- Vínculos: empotramiento (rectángulo rayado), apoyo fijo (triángulo), rodillo (circulo),
+  resorte (zigzag con valor k)
+- Cargas puntuales (flechas naranjas con valor)
+- Cargas distribuidas (trapecio con valores q1, q2)
+- Momentos nodales (arco con flecha)
+
+---
+
+## Visualización de Deformada
+
+**Módulo:** `src/ui/visualization/deformada.py`
+
+Calcula y dibuja la deformada elástica de la estructura mediante doble integración
+de la curvatura κ(x) = M(x)/(EI):
+
+```python
+from src.ui.visualization.deformada import graficar_deformada, graficar_comparacion_deformadas
+import matplotlib.pyplot as plt
+
+# Deformada con escala automática
+fig, ax = graficar_deformada(modelo, resultado)
+plt.show()
+
+# Comparacion de escalas
+fig, axes = graficar_comparacion_deformadas(modelo, resultado, factores=[1, 10, 100])
+plt.show()
+```
+
+**Implementación:**
+```python
+# Para cada barra:
+kappa = lambda x: diagrama.M(x) / (barra.material.E * barra.seccion.Jz)
+theta = integral(kappa)   # primera integral → rotaciones
+v     = integral(theta)   # segunda integral → desplazamiento transversal
+```
+
+**Factor de escala automático:** Se calcula para que la deformada visible sea
+aproximadamente el 10% de la dimensión característica de la estructura.
+Las opciones de visualización incluyen factores de escala manuales y comparación
+lado a lado con diferentes factores.
+
+---
 
 ## Parámetros Avanzados
 
@@ -233,13 +303,12 @@ plt.rcParams['axes.unicode_minus'] = False
 
 ## Próximos Pasos
 
-Funcionalidades planificadas para futuras versiones:
-
-1. **Deformada exagerada**: Visualización de desplazamientos con factor de escala
-2. **Animación de superposición**: Ver cómo cada Xi contribuye al resultado final
-3. **Exportación a PDF vectorial**: Gráficos escalables para reportes profesionales
-4. **Interfaz interactiva**: Zoom, pan, selección de barras, valores al hacer clic
-5. **Reportes automáticos**: Generación de informes técnicos completos en PDF
+1. **Reportes automáticos PDF**: Generación de informes técnicos completos con ReportLab
+   (incluir geometría, diagramas, tabla de reacciones y redundantes)
+2. **Animación de superposición**: Visualizar cómo cada redundante Xi contribuye al
+   resultado final (útil didácticamente)
+3. **Integración GUI**: Incrustar visualizaciones matplotlib en el canvas PyQt6
+   (actualmente son ventanas matplotlib independientes)
 
 ## Referencias
 

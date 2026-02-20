@@ -10,10 +10,10 @@
 - 30 tests unitarios pasando (100%)
 - Ejemplo demostrativo funcional
 
-⏳ **Pendiente**:
-- Integración en el motor de fuerzas (`motor_fuerzas.py`)
-- Modificación de matriz de flexibilidad para incluir rigideces elásticas
-- Validación con casos de literatura
+✅ **También implementado**:
+- Integración en el motor de fuerzas: funciones `_agregar_flexibilidad_resortes()` y `_calcular_e0i_resortes()` en `trabajos_virtuales.py`
+- Modificación de matriz de flexibilidad: término 1/k en diagonal F[i,i] para cada resorte redundante
+- Validación con casos clásicos: `tests/unit/test_resorte_elastico.py` (35/35 tests)
 
 ## Fundamento Teórico
 
@@ -436,11 +436,11 @@ apoyo_neopreno = ResorteElastico(
 1. ✅ Implementar clase `ResorteElastico` → **COMPLETADO**
 2. ✅ Crear tests unitarios → **COMPLETADO** (30/30)
 3. ✅ Crear ejemplo demostrativo → **COMPLETADO**
-4. ⏳ Integrar en motor de fuerzas:
-   - Modificar `ensamblar_SECE()` para incluir 1/k
-   - Implementar `calcular_reacciones_resortes()`
-5. ⏳ Validar con casos de literatura
-6. ⏳ Crear tests de integración end-to-end
+4. ✅ Integrar en motor de fuerzas → **COMPLETADO**
+   - `_agregar_flexibilidad_resortes()`: agrega 1/k a F[i,i]
+   - `_calcular_desplazamientos_resortes()`: δ = R/k post-análisis
+5. ✅ Validar con casos de literatura → **COMPLETADO** (35/35 tests unitarios)
+6. ⏳ Crear tests de integración end-to-end (análisis hiperestático completo con resorte)
 
 ## Notas de Implementación
 
