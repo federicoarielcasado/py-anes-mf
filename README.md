@@ -22,7 +22,7 @@ PyANES-MF es un software de análisis estructural para **pórticos planos 2D hip
 - ✅ **Cargas térmicas** (variación uniforme y gradiente térmico)
 - ✅ **Resortes elásticos** (kx, ky, kθ) como vínculos
 - ✅ **Movimientos impuestos** (hundimientos, levantamientos, rotaciones prescritas)
-- ✅ **Interfaz gráfica interactiva** (Tkinter) con canvas drag-and-drop
+- ✅ **Interfaz gráfica interactiva** (PyQt6) con canvas drag-and-drop
 - ✅ **Serialización de proyectos** en formato JSON (guardar/cargar)
 - ✅ **Sistema Undo/Redo** (Ctrl+Z / Ctrl+Y)
 - ✅ **Suite de 176 tests** automatizados
@@ -282,7 +282,7 @@ py-anes-mf/
 │   │   │   ├── trabajos_virtuales.py      # Cálculo de fᵢⱼ y e₀ᵢ
 │   │   │   └── sece_solver.py             # Resolución del SECE
 │   │   └── model/            # ModeloEstructural (contenedor)
-│   ├── gui/                  # Interfaz gráfica (Tkinter)
+│   ├── gui/                  # Interfaz gráfica (PyQt6)
 │   │   ├── main_window.py    # Ventana principal
 │   │   ├── canvas/           # Canvas interactivo drag-and-drop
 │   │   ├── widgets/          # Panel de propiedades y resultados
