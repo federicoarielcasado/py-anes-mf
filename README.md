@@ -3,7 +3,7 @@
 **Sistema de Análisis Estructural por Método de las Fuerzas**
 
 [![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/Tests-168%2F171%20passing-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-176%2F176%20passing-brightgreen.svg)](tests/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
@@ -22,7 +22,10 @@ PyANES-MF es un software de análisis estructural para **pórticos planos 2D hip
 - ✅ **Cargas térmicas** (variación uniforme y gradiente térmico)
 - ✅ **Resortes elásticos** (kx, ky, kθ) como vínculos
 - ✅ **Movimientos impuestos** (hundimientos, levantamientos, rotaciones prescritas)
-- ✅ **Suite de 168 tests** automatizados (98.2% cobertura)
+- ✅ **Interfaz gráfica interactiva** (Tkinter) con canvas drag-and-drop
+- ✅ **Serialización de proyectos** en formato JSON (guardar/cargar)
+- ✅ **Sistema Undo/Redo** (Ctrl+Z / Ctrl+Y)
+- ✅ **Suite de 176 tests** automatizados
 - ✅ **Exportación de resultados** en formato PNG (300 DPI)
 
 ---
@@ -279,14 +282,20 @@ py-anes-mf/
 │   │   │   ├── trabajos_virtuales.py      # Cálculo de fᵢⱼ y e₀ᵢ
 │   │   │   └── sece_solver.py             # Resolución del SECE
 │   │   └── model/            # ModeloEstructural (contenedor)
+│   ├── gui/                  # Interfaz gráfica (Tkinter)
+│   │   ├── main_window.py    # Ventana principal
+│   │   ├── canvas/           # Canvas interactivo drag-and-drop
+│   │   ├── widgets/          # Panel de propiedades y resultados
+│   │   ├── dialogs/          # Diálogos de cargas y redundantes
+│   │   └── history/          # Gestor Undo/Redo
 │   ├── ui/
-│   │   └── visualization/    # Diagramas, deformada, geometría
+│   │   └── visualization/    # Diagramas (M,V,N), deformada, geometría
 │   ├── utils/                # Constantes, integración numérica
-│   └── data/                 # Base de datos de materiales y secciones
+│   └── data/                 # Materiales, secciones, serialización JSON
 ├── tests/
-│   ├── unit/                 # Tests unitarios (168 tests)
-│   ├── integration/          # Tests de integración
-│   └── validation/           # Casos de validación
+│   ├── unit/                 # Tests unitarios
+│   ├── integration/          # Tests de integración y casos clásicos
+│   └── domain/               # Tests de entidades del dominio
 ├── examples/                 # Ejemplos didácticos
 │   ├── ejemplo_visualizacion.py
 │   ├── ejemplo_deformada.py
@@ -367,7 +376,7 @@ py-anes-mf/
 
 ### Suite de Tests Automatizados
 
-PyANES-MF cuenta con **168 tests automatizados** que garantizan la corrección de los cálculos:
+PyANES-MF cuenta con **176 tests automatizados** que garantizan la corrección de los cálculos:
 
 ```bash
 # Ejecutar todos los tests
