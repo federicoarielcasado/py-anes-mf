@@ -301,15 +301,19 @@ py-anes-mf/
 │   ├── ejemplo_deformada.py
 │   ├── ejemplo_carga_termica.py
 │   ├── ejemplo_resortes_elasticos.py
-│   └── ejemplo_movimientos_impuestos.py
+│   ├── ejemplo_movimientos_impuestos.py
+│   └── ejemplo_viga_biempotrada_gh1.py
 ├── docs/
 │   ├── teoria/               # Documentación técnica
 │   │   ├── NOTAS_CARGAS_TERMICAS.md
 │   │   ├── NOTAS_RESORTES_ELASTICOS.md
 │   │   ├── NOTAS_MOVIMIENTOS_IMPUESTOS.md
+│   │   ├── SELECCION_REDUNDANTES.md
+│   │   ├── SISTEMA_COORDENADAS_LOCALES.md
 │   │   └── VISUALIZACION.md
 │   ├── ARQUITECTURA_PROYECTO.md
 │   └── PLANIFICACION_DESARROLLO.md
+├── main.py                   # Punto de entrada (lanza GUI)
 ├── README.md                 # Este archivo
 ├── CLAUDE.md                 # Contexto para agentes IA
 └── requirements.txt          # Dependencias
@@ -382,11 +386,14 @@ PyANES-MF cuenta con **176 tests automatizados** que garantizan la corrección d
 # Ejecutar todos los tests
 pytest -v --tb=no -q
 
-# Ejecutar tests de un módulo específico
-pytest tests/unit/test_movimiento_impuesto.py -v
+# Tests unitarios (cargas térmicas, resortes, movimientos impuestos)
+pytest tests/unit/ -v
 
-# Ejecutar tests de integración
-cd tests/integration && pytest test_casos_clasicos.py -v
+# Tests de integración (casos clásicos, esfuerzos)
+pytest tests/integration/ -v
+
+# Tests de entidades del dominio
+pytest tests/domain/ -v
 
 # Ver cobertura de tests
 pytest --cov=src --cov-report=html
