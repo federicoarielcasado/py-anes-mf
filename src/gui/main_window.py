@@ -59,6 +59,9 @@ class MainWindow(QMainWindow):
         # Ruta del archivo actualmente abierto (None = sin guardar)
         self._ruta_archivo: str | None = None
 
+        # Ultimo resultado de analisis (None = no resuelto)
+        self._resultado: ResultadoAnalisis | None = None
+
         # Configurar ventana
         self._setup_window()
         self._setup_menus()
@@ -117,10 +120,16 @@ class MainWindow(QMainWindow):
 
         menu_archivo.addSeparator()
 
-        action_exportar = QAction("&Exportar resultados...", self)
-        action_exportar.setStatusTip("Exportar diagramas y resultados")
+        action_exportar = QAction("&Exportar imagen (PNG)...", self)
+        action_exportar.setStatusTip("Exportar vista del canvas como imagen PNG")
         action_exportar.triggered.connect(self._on_exportar)
         menu_archivo.addAction(action_exportar)
+
+        action_exportar_pdf = QAction("Exportar informe (P&DF)...", self)
+        action_exportar_pdf.setShortcut("Ctrl+Shift+E")
+        action_exportar_pdf.setStatusTip("Exportar informe tecnico completo en PDF")
+        action_exportar_pdf.triggered.connect(self._on_exportar_pdf)
+        menu_archivo.addAction(action_exportar_pdf)
 
         menu_archivo.addSeparator()
 
@@ -769,6 +778,51 @@ class MainWindow(QMainWindow):
                 f"Error inesperado al exportar:\n\n{e}"
             )
 
+    def _on_exportar_pdf(self):
+        """Exporta el informe de analisis completo como PDF."""
+        if self._resultado is None:
+            QMessageBox.warning(
+                self,
+                "Sin resultados",
+                "Primero debe resolver la estructura (F5) antes de exportar el PDF."
+            )
+            return
+
+        nombre_default = (getattr(self.modelo, "nombre", "proyecto") or "proyecto")
+        nombre_default = nombre_default.replace(" ", "_") + "_informe.pdf"
+
+        filename, _ = QFileDialog.getSaveFileName(
+            self,
+            "Exportar informe PDF",
+            nombre_default,
+            "Documentos PDF (*.pdf)"
+        )
+        if not filename:
+            return
+
+        try:
+            from src.ui.export.reporte_pdf import generar_reporte_pdf
+            generar_reporte_pdf(self.modelo, self._resultado, filename)
+            self.statusbar.showMessage(f"PDF exportado: {filename}", 5000)
+            QMessageBox.information(
+                self,
+                "PDF generado",
+                f"El informe fue exportado exitosamente:\n\n{filename}"
+            )
+        except ImportError:
+            QMessageBox.critical(
+                self,
+                "Dependencia faltante",
+                "Falta la biblioteca 'reportlab'.\n\n"
+                "Instalar con:\n    pip install reportlab"
+            )
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                "Error al exportar PDF",
+                f"No se pudo generar el PDF:\n\n{str(exc)}"
+            )
+
     def _on_eliminar(self):
         """Elimina los elementos seleccionados."""
         if hasattr(self, 'canvas'):
@@ -932,6 +986,9 @@ class MainWindow(QMainWindow):
             resultado = motor.resolver()
 
             if resultado.exitoso:
+                # Guardar resultado para exportacion PDF
+                self._resultado = resultado
+
                 # Actualizar panel de resultados (pasar modelo para equilibrio correcto)
                 self.results_panel.mostrar_resultado(resultado, modelo=self.modelo)
 
