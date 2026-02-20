@@ -103,11 +103,12 @@ class TestVigaBiempotradaCargaPuntual:
         modelo.asignar_vinculo(nB.id, Empotramiento())
 
         # Aplicar carga puntual central: P = 10 kN hacia abajo
+        # CONVENCION: angulo=+90 = perpendicular horario = hacia abajo en barra horizontal
         carga = CargaPuntualBarra(
             barra=barra,
             P=10.0,  # kN
             a=3.0,   # Centro de la viga (L/2)
-            angulo=-90,  # Vertical hacia abajo
+            angulo=+90,  # +90 = hacia abajo (Y+ abajo)
         )
         modelo.agregar_carga(carga)
 
@@ -523,7 +524,7 @@ class TestConvergenciaNumerica:
         modelo.asignar_vinculo(nA.id, Empotramiento())
         modelo.asignar_vinculo(nB.id, Empotramiento())
 
-        carga = CargaPuntualBarra(barra=barra, P=10.0, a=3.0, angulo=-90)
+        carga = CargaPuntualBarra(barra=barra, P=10.0, a=3.0, angulo=+90)
         modelo.agregar_carga(carga)
 
         resultado = analizar_estructura(modelo)
@@ -550,7 +551,7 @@ class TestConvergenciaNumerica:
         modelo.asignar_vinculo(nA.id, Empotramiento())
         modelo.asignar_vinculo(nB.id, Empotramiento())
 
-        carga = CargaPuntualBarra(barra=barra, P=10.0, a=3.0, angulo=-90)
+        carga = CargaPuntualBarra(barra=barra, P=10.0, a=3.0, angulo=+90)
         modelo.agregar_carga(carga)
 
         resultado = analizar_estructura(modelo)
