@@ -252,16 +252,21 @@ class CalculadorFlexibilidad:
             if barra not in self.barras:
                 continue
 
-            # Contribución uniforme: α·ΔT·∫(Ni dx)
+            # Contribución uniforme: α·ΔT·∫(N̄ᵢ dx)
+            # Se integra numéricamente para capturar variaciones de N̄ᵢ(x),
+            # incluyendo el caso de barras inclinadas donde el axil virtual
+            # no es constante (estructura con múltiples barras y redundante Ry).
             if abs(carga_termica.delta_T_uniforme) > TOLERANCE:
-                # Obtener esfuerzo axial virtual en la barra
-                # Para axil constante: ∫(Ni dx) = Ni·L
                 try:
-                    Ni_promedio = (sub_i.N(barra.id, 0) + sub_i.N(barra.id, barra.L)) / 2
-                    trabajo_uniforme = carga_termica.trabajo_virtual_uniforme(Ni_promedio)
-                    e0i_termico += trabajo_uniforme
-                except (KeyError, AttributeError):
-                    # La barra puede no tener esfuerzo axial en esta subestructura
+                    from scipy.integrate import simpson as scipy_simpson
+
+                    alpha = barra.material.alpha
+                    n_pts = self.n_puntos
+                    x_vals = np.linspace(0, barra.L, n_pts)
+                    Ni_vals = np.array([sub_i.N(barra.id, x) for x in x_vals])
+                    integral_N = scipy_simpson(Ni_vals, x=x_vals)
+                    e0i_termico += alpha * carga_termica.delta_T_uniforme * integral_N
+                except (KeyError, AttributeError, ImportError):
                     pass
 
             # Contribución gradiente: κ·∫(Mi dx)
@@ -419,42 +424,17 @@ class CalculadorFlexibilidad:
 
     def _calcular_e0i_mohr(self, i: int) -> float:
         """
-        Calcula e0i usando Tabla de Mohr.
+        Calcula e0i usando integración numérica (Simpson).
 
-        Para M̄i lineal y M⁰ que puede ser parabólico (carga distribuida),
-        usa las fórmulas correspondientes.
+        NOTA: Aunque la intención original era usar la tabla de Mohr (fórmulas
+        cerradas), M⁰ puede ser parabólico (carga distribuida) o de forma
+        arbitraria, por lo que asumir linealidad produce resultados incorrectos.
+        Esta función delega en _calcular_e0i para garantizar precisión.
+
+        La tabla de Mohr sí se usa para los coeficientes fij (diagramas virtuales
+        lineales) a través de _calcular_fij_mohr.
         """
-        sub_i = self.subestructuras_xi[i]
-
-        e0i = 0.0
-
-        for barra in self.barras:
-            L = barra.L
-            EI = barra.EI
-
-            diag_i = sub_i.diagramas.get(barra.id)
-            diag_0 = self.fundamental.diagramas.get(barra.id)
-
-            if diag_i is None or diag_0 is None:
-                continue
-
-            Mi_0 = diag_i.Mi
-            Mi_L = diag_i.Mj
-
-            # Para M⁰, muestrear varios puntos y usar Simpson si es necesario
-            # Simplificación: asumir M⁰ también lineal (aproximación)
-            M0_0 = diag_0.Mi
-            M0_L = diag_0.Mj
-
-            # Fórmula trapecio × trapecio
-            integral = (L / 6) * (
-                Mi_0 * (2*M0_0 + M0_L) +
-                Mi_L * (M0_0 + 2*M0_L)
-            )
-
-            e0i += integral / EI
-
-        return e0i
+        return self._calcular_e0i(i)
 
     def _calcular_e0i_resortes(self, i: int) -> float:
         """

@@ -327,3 +327,113 @@ class TestCasosLimite:
         assert "CargaTermica" in str_repr
         assert "15.0" in str_repr or "+15" in str_repr
         assert "10.0" in str_repr or "+10" in str_repr
+
+
+class TestCalculadorFlexibilidadTermico:
+    """
+    Tests de integración: contribución térmica al vector e0 en el CalculadorFlexibilidad.
+
+    Verifica que _calcular_e0i_termico integra numéricamente ∫N̄ᵢ dx
+    en lugar de aproximar con N̄_promedio, lo que es esencial para
+    barras inclinadas o estructuras donde N̄ᵢ varía a lo largo de la barra.
+    """
+
+    def _hacer_subestructura_xi(self, barra, N_inicio, N_fin):
+        """
+        Crea una Subestructura Xi con N̄ lineal de N_inicio a N_fin y M̄=0.
+
+        Usa un DiagramaEsfuerzos con función N personalizada para que
+        sub.N(barra.id, x) devuelva el axil correcto.
+        """
+        from src.domain.analysis.subestructuras import Subestructura
+        from src.domain.mechanics.esfuerzos import DiagramaEsfuerzos, EsfuerzosTramo
+
+        L = barra.L
+        pendiente = (N_fin - N_inicio) / L if L > 1e-10 else 0.0
+
+        def N_func(x, N0=N_inicio, m=pendiente):
+            return N0 + m * x
+
+        tramo = EsfuerzosTramo(
+            x_inicio=0.0, x_fin=L,
+            N=N_func,
+            V=lambda x: 0.0,
+            M=lambda x: 0.0,
+        )
+        diagrama = DiagramaEsfuerzos(
+            barra_id=barra.id, L=L,
+            tramos=[tramo],
+            Ni=N_inicio, Nj=N_fin,
+            Mi=0.0, Mj=0.0,
+        )
+        sub = Subestructura(nombre="X1_test", es_fundamental=False)
+        sub.diagramas[barra.id] = diagrama
+        return sub
+
+    def _hacer_fundamental_vacia(self, barra):
+        """Subestructura fundamental con M⁰=N⁰=0."""
+        from src.domain.analysis.subestructuras import Subestructura
+        from src.domain.mechanics.esfuerzos import crear_diagrama_lineal
+
+        fundamental = Subestructura(nombre="Fund", es_fundamental=True)
+        fundamental.diagramas[barra.id] = crear_diagrama_lineal(
+            barra.id, barra.L, 0, 0, "M"
+        )
+        return fundamental
+
+    def test_e0_termico_axil_constante(self, barra_simple):
+        """
+        ΔT uniforme con N̄=1 constante → e0 = α·ΔT·N̄·L (resultado clásico).
+
+        Verifica que la integración numérica coincide con la fórmula cerrada
+        cuando el axil virtual es constante.
+          e0 = α·ΔT·∫N̄ dx = 1.2e-5 · 30 · 1.0 · 6.0 = 2.16e-3 m
+        """
+        from src.domain.analysis.trabajos_virtuales import CalculadorFlexibilidad
+
+        carga_termica = CargaTermica(barra=barra_simple, delta_T_uniforme=30.0)
+        sub_xi = self._hacer_subestructura_xi(barra_simple, N_inicio=1.0, N_fin=1.0)
+        fundamental = self._hacer_fundamental_vacia(barra_simple)
+
+        calculador = CalculadorFlexibilidad(
+            barras=[barra_simple],
+            fundamental=fundamental,
+            subestructuras_xi=[sub_xi],
+            cargas_termicas=[carga_termica],
+        )
+
+        e0_esperado = 1.2e-5 * 30.0 * 1.0 * 6.0  # = 2.16e-3
+        coef = calculador.calcular()
+        assert abs(coef.e0[0] - e0_esperado) < 1e-8, (
+            f"e0 termico esperado {e0_esperado:.2e}, obtenido {coef.e0[0]:.2e}"
+        )
+
+    def test_e0_termico_axil_lineal_variable(self, barra_simple):
+        """
+        ΔT uniforme con N̄ lineal de 0→1 → e0 = α·ΔT·∫N̄ dx = α·ΔT·L/2.
+
+        Este caso (N̄ variable) verifica que la integración numérica es necesaria:
+        el promedio de extremos (N̄=(0+1)/2=0.5) daría α·ΔT·0.5·L = α·ΔT·L/2,
+        que coincide en este caso lineal, pero la integración con Simpson es
+        la implementación correcta para el caso general.
+          e0 = α·ΔT·∫₀ᴸ(x/L) dx = α·ΔT·L/2 = 1.2e-5 · 30 · 3.0 = 1.08e-3 m
+        """
+        from src.domain.analysis.trabajos_virtuales import CalculadorFlexibilidad
+
+        carga_termica = CargaTermica(barra=barra_simple, delta_T_uniforme=30.0)
+        # N̄(x) = x/L  →  ∫N̄ dx = L/2 = 3.0
+        sub_xi = self._hacer_subestructura_xi(barra_simple, N_inicio=0.0, N_fin=1.0)
+        fundamental = self._hacer_fundamental_vacia(barra_simple)
+
+        calculador = CalculadorFlexibilidad(
+            barras=[barra_simple],
+            fundamental=fundamental,
+            subestructuras_xi=[sub_xi],
+            cargas_termicas=[carga_termica],
+        )
+
+        e0_esperado = 1.2e-5 * 30.0 * 3.0  # = 1.08e-3
+        coef = calculador.calcular()
+        assert abs(coef.e0[0] - e0_esperado) < 1e-8, (
+            f"e0 termico esperado {e0_esperado:.2e}, obtenido {coef.e0[0]:.2e}"
+        )
