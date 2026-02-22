@@ -18,9 +18,11 @@ from PyQt6.QtWidgets import (
     QLabel,
     QScrollArea,
     QDialog,
+    QPushButton,
+    QSizePolicy,
 )
 from PyQt6.QtCore import Qt, QSize
-from PyQt6.QtGui import QAction, QIcon, QKeySequence
+from PyQt6.QtGui import QAction, QIcon, QKeySequence, QFont
 
 from src.domain.model.modelo_estructural import ModeloEstructural
 from src.domain.entities.vinculo import Empotramiento, ApoyoFijo, Rodillo
@@ -217,43 +219,56 @@ class MainWindow(QMainWindow):
         action_acerca.triggered.connect(self._on_acerca)
         menu_ayuda.addAction(action_acerca)
 
+    def _toolbar_label(self, texto: str) -> QLabel:
+        """Crea una etiqueta de sección para la toolbar."""
+        lbl = QLabel(texto)
+        lbl.setStyleSheet(
+            "color: #555; font-size: 10px; font-weight: bold; "
+            "padding: 0 4px; border-left: 1px solid #bbb; margin-left: 2px;"
+        )
+        return lbl
+
     def _setup_toolbar(self):
-        """Configura la barra de herramientas."""
+        """Configura la barra de herramientas con grupos visuales."""
         toolbar = QToolBar("Herramientas principales")
         toolbar.setMovable(False)
         toolbar.setIconSize(QSize(24, 24))
         self.addToolBar(toolbar)
 
-        # Herramientas de selección/creación
+        # ── Geometría ────────────────────────────────────────────────────
+        toolbar.addWidget(self._toolbar_label("Geometria"))
+
         self.action_seleccionar = QAction("Seleccionar", self)
         self.action_seleccionar.setCheckable(True)
         self.action_seleccionar.setChecked(True)
-        self.action_seleccionar.setStatusTip("Modo selección (S)")
+        self.action_seleccionar.setStatusTip("Modo seleccion (S)")
         self.action_seleccionar.setShortcut("S")
         toolbar.addAction(self.action_seleccionar)
 
-        self.action_crear_nudo = QAction("Crear Nudo", self)
+        self.action_crear_nudo = QAction("Nudo", self)
         self.action_crear_nudo.setCheckable(True)
-        self.action_crear_nudo.setStatusTip("Crear nudo (N)")
+        self.action_crear_nudo.setStatusTip("Crear nudo haciendo clic en el canvas (N)")
         self.action_crear_nudo.setShortcut("N")
         toolbar.addAction(self.action_crear_nudo)
 
-        self.action_crear_barra = QAction("Crear Barra", self)
+        self.action_crear_barra = QAction("Barra", self)
         self.action_crear_barra.setCheckable(True)
-        self.action_crear_barra.setStatusTip("Crear barra (B)")
+        self.action_crear_barra.setStatusTip("Crear barra arrastrando entre nudos (B)")
         self.action_crear_barra.setShortcut("B")
         toolbar.addAction(self.action_crear_barra)
 
         toolbar.addSeparator()
 
-        # Vínculos
-        self.action_empotramiento = QAction("Empotramiento", self)
+        # ── Vínculos ──────────────────────────────────────────────────────
+        toolbar.addWidget(self._toolbar_label("Vinculos"))
+
+        self.action_empotramiento = QAction("Empotr.", self)
         self.action_empotramiento.setStatusTip("Asignar empotramiento al nudo seleccionado (E)")
         self.action_empotramiento.setShortcut("E")
         self.action_empotramiento.triggered.connect(lambda: self._on_asignar_vinculo("empotramiento"))
         toolbar.addAction(self.action_empotramiento)
 
-        self.action_apoyo_fijo = QAction("Apoyo Fijo", self)
+        self.action_apoyo_fijo = QAction("Ap. Fijo", self)
         self.action_apoyo_fijo.setStatusTip("Asignar apoyo fijo al nudo seleccionado (A)")
         self.action_apoyo_fijo.setShortcut("A")
         self.action_apoyo_fijo.triggered.connect(lambda: self._on_asignar_vinculo("apoyo_fijo"))
@@ -267,26 +282,61 @@ class MainWindow(QMainWindow):
 
         toolbar.addSeparator()
 
-        # Cargas
-        self.action_carga_puntual = QAction("Carga Puntual", self)
-        self.action_carga_puntual.setStatusTip("Agregar carga puntual (P)")
+        # ── Cargas ────────────────────────────────────────────────────────
+        toolbar.addWidget(self._toolbar_label("Cargas"))
+
+        self.action_carga_puntual = QAction("Puntual", self)
+        self.action_carga_puntual.setStatusTip("Agregar carga puntual en nudo o barra (P)")
         self.action_carga_puntual.setShortcut("P")
         self.action_carga_puntual.triggered.connect(self._on_agregar_carga_puntual)
         toolbar.addAction(self.action_carga_puntual)
 
-        self.action_carga_distribuida = QAction("Carga Distribuida", self)
-        self.action_carga_distribuida.setStatusTip("Agregar carga distribuida (D)")
+        self.action_carga_distribuida = QAction("Distribuida", self)
+        self.action_carga_distribuida.setStatusTip("Agregar carga distribuida en barra (D)")
         self.action_carga_distribuida.setShortcut("D")
         self.action_carga_distribuida.triggered.connect(self._on_agregar_carga_distribuida)
         toolbar.addAction(self.action_carga_distribuida)
 
         toolbar.addSeparator()
 
-        # Análisis
+        # ── Análisis ──────────────────────────────────────────────────────
+        # Botón "Resolver" como QPushButton prominente
+        self.btn_resolver = QPushButton("  Resolver (F5)  ")
+        self.btn_resolver.setStatusTip("Ejecutar analisis por el Metodo de las Fuerzas")
+        self.btn_resolver.setToolTip(
+            "<b>Resolver estructura</b><br>"
+            "Ejecuta el Metodo de las Fuerzas:<br>"
+            "- Calcula grado de hiperestaticidad<br>"
+            "- Selecciona redundantes<br>"
+            "- Resuelve el SECE<br>"
+            "- Genera diagramas M/V/N<br><br>"
+            "<b>Atajo:</b> F5"
+        )
+        self.btn_resolver.setStyleSheet(
+            "QPushButton {"
+            "  background-color: #2563eb;"
+            "  color: white;"
+            "  border: none;"
+            "  border-radius: 4px;"
+            "  padding: 4px 12px;"
+            "  font-weight: bold;"
+            "  font-size: 12px;"
+            "}"
+            "QPushButton:hover { background-color: #1d4ed8; }"
+            "QPushButton:pressed { background-color: #1e40af; }"
+            "QPushButton:disabled {"
+            "  background-color: #93c5fd;"
+            "  color: #dbeafe;"
+            "}"
+        )
+        self.btn_resolver.setShortcut("F5")
+        self.btn_resolver.clicked.connect(self._on_resolver)
+        toolbar.addWidget(self.btn_resolver)
+
+        # Acción fantasma para mantener compatibilidad con código que usa
+        # self.action_resolver_toolbar (por si hay referencias externas)
         self.action_resolver_toolbar = QAction("Resolver", self)
-        self.action_resolver_toolbar.setStatusTip("Resolver estructura (F5)")
         self.action_resolver_toolbar.triggered.connect(self._on_resolver)
-        toolbar.addAction(self.action_resolver_toolbar)
 
         # Conectar acciones de herramientas para modo exclusivo
         self._setup_tool_actions()
@@ -366,9 +416,9 @@ class MainWindow(QMainWindow):
         self.statusbar = QStatusBar()
         self.setStatusBar(self.statusbar)
 
-        # Labels permanentes
+        # Labels permanentes (de derecha a izquierda — addPermanentWidget agrega a la derecha)
         self.label_coordenadas = QLabel("X: 0.00  Y: 0.00")
-        self.label_coordenadas.setMinimumWidth(200)
+        self.label_coordenadas.setMinimumWidth(160)
         self.statusbar.addPermanentWidget(self.label_coordenadas)
 
         self.label_gh = QLabel("GH: 0")
@@ -378,6 +428,15 @@ class MainWindow(QMainWindow):
         self.label_elementos = QLabel("Nudos: 0  Barras: 0")
         self.label_elementos.setMinimumWidth(150)
         self.statusbar.addPermanentWidget(self.label_elementos)
+
+        # Indicador de estado de análisis (el más importante — va a la izquierda)
+        self.label_estado_analisis = QLabel("[ Sin resolver ]")
+        self.label_estado_analisis.setMinimumWidth(200)
+        self.label_estado_analisis.setStyleSheet(
+            "color: #92400e; background-color: #fef3c7; "
+            "border: 1px solid #d97706; border-radius: 3px; padding: 1px 6px;"
+        )
+        self.statusbar.addPermanentWidget(self.label_estado_analisis)
 
         self._update_statusbar()
 
@@ -393,10 +452,88 @@ class MainWindow(QMainWindow):
 
     def _update_statusbar(self):
         """Actualiza la información en la barra de estado."""
-        self.label_gh.setText(f"GH: {self.modelo.grado_hiperestaticidad}")
+        gh = self.modelo.grado_hiperestaticidad
+        self.label_gh.setText(f"GH: {gh}")
+
+        # Color del label GH según estabilidad
+        if gh < 0:
+            self.label_gh.setStyleSheet("color: #dc2626; font-weight: bold;")
+            self.label_gh.setToolTip(f"Estructura hipostatica (GH={gh}). Faltan {-gh} vinculos.")
+        elif gh == 0:
+            self.label_gh.setStyleSheet("color: #059669; font-weight: bold;")
+            self.label_gh.setToolTip("Estructura isostatica")
+        else:
+            self.label_gh.setStyleSheet("color: #2563eb; font-weight: bold;")
+            self.label_gh.setToolTip(f"Estructura hiperestatica de grado {gh}")
+
         self.label_elementos.setText(
             f"Nudos: {self.modelo.num_nudos}  Barras: {self.modelo.num_barras}"
         )
+
+        # Habilitar/deshabilitar botón Resolver
+        puede_resolver = (
+            self.modelo.num_nudos >= 2
+            and self.modelo.num_barras >= 1
+            and gh >= 0
+        )
+        if hasattr(self, 'btn_resolver'):
+            self.btn_resolver.setEnabled(puede_resolver)
+            if not puede_resolver:
+                if gh < 0:
+                    self.btn_resolver.setToolTip(
+                        "No se puede resolver: estructura hipostatica (GH < 0).\n"
+                        f"Faltan {-gh} vinculos."
+                    )
+                else:
+                    self.btn_resolver.setToolTip(
+                        "No se puede resolver: el modelo necesita al menos\n"
+                        "2 nudos y 1 barra."
+                    )
+            else:
+                self.btn_resolver.setToolTip(
+                    "<b>Resolver estructura</b><br>"
+                    "Ejecuta el Metodo de las Fuerzas (F5)"
+                )
+
+    def _update_estado_analisis(self, exitoso: bool | None = None):
+        """
+        Actualiza el indicador visual de estado de analisis.
+
+        Args:
+            exitoso: True=resuelto, False=error, None=sin resolver/modelo modificado
+        """
+        if not hasattr(self, 'label_estado_analisis'):
+            return
+
+        if exitoso is None:
+            self.label_estado_analisis.setText("[ Sin resolver ]")
+            self.label_estado_analisis.setStyleSheet(
+                "color: #92400e; background-color: #fef3c7; "
+                "border: 1px solid #d97706; border-radius: 3px; padding: 1px 6px;"
+            )
+            self.label_estado_analisis.setToolTip(
+                "Presione F5 para resolver la estructura"
+            )
+        elif exitoso:
+            self.label_estado_analisis.setText("[ Resuelto OK ]")
+            self.label_estado_analisis.setStyleSheet(
+                "color: #065f46; background-color: #d1fae5; "
+                "border: 1px solid #10b981; border-radius: 3px; padding: 1px 6px; "
+                "font-weight: bold;"
+            )
+            self.label_estado_analisis.setToolTip(
+                "Analisis completado. Resultados disponibles en el panel inferior."
+            )
+        else:
+            self.label_estado_analisis.setText("[ Error en analisis ]")
+            self.label_estado_analisis.setStyleSheet(
+                "color: #7f1d1d; background-color: #fee2e2; "
+                "border: 1px solid #ef4444; border-radius: 3px; padding: 1px 6px; "
+                "font-weight: bold;"
+            )
+            self.label_estado_analisis.setToolTip(
+                "El analisis fallo. Revise el modelo y vuelva a intentarlo."
+            )
 
     # =========================================================================
     # Undo / Redo
@@ -441,13 +578,15 @@ class MainWindow(QMainWindow):
     def _aplicar_modelo_restaurado(self) -> None:
         """
         Actualiza todos los componentes de la UI para reflejar un modelo
-        recién restaurado (tras deshacer o rehacer).
+        recien restaurado (tras deshacer o rehacer).
         """
         self.canvas.set_model(self.modelo)
         self.properties_panel.set_canvas(self.canvas)
         self.results_panel.limpiar()
+        self._resultado = None
         self._update_title()
         self._update_statusbar()
+        self._update_estado_analisis(exitoso=None)
         self._refresh_canvas()
 
     # =========================================================================
@@ -989,6 +1128,9 @@ class MainWindow(QMainWindow):
                 # Guardar resultado para exportacion PDF
                 self._resultado = resultado
 
+                # Actualizar indicador de estado
+                self._update_estado_analisis(exitoso=True)
+
                 # Actualizar panel de resultados (pasar modelo para equilibrio correcto)
                 self.results_panel.mostrar_resultado(resultado, modelo=self.modelo)
 
@@ -998,50 +1140,64 @@ class MainWindow(QMainWindow):
 
                 self._refresh_canvas()
 
-                # Mensaje de éxito
-                msg = f"✓ Análisis completado exitosamente\n\n"
+                # Mensaje de exito (sin emojis: evitar UnicodeEncodeError en consola Windows)
+                msg = f"Analisis completado exitosamente\n\n"
                 msg += f"Grado de hiperestaticidad: GH = {resultado.grado_hiperestaticidad}\n\n"
 
                 if resultado.redundantes:
                     msg += "Redundantes resueltos:\n"
                     for i, red in enumerate(resultado.redundantes, 1):
                         valor = resultado.Xi(i)
-                        msg += f"  X{i} = {valor:+.4f} ({red.descripcion})\n"
+                        msg += f"  X{i} = {valor:+.4f}  ({red.descripcion})\n"
                     msg += "\n"
 
                 msg += "Reacciones calculadas:\n"
                 for nudo in self.modelo.nudos:
                     if nudo.tiene_vinculo:
                         Rx, Ry, Mz = resultado.obtener_reaccion(nudo.id)
-                        msg += f"  Nudo {nudo.id}: Rx={Rx:+.3f} kN, Ry={Ry:+.3f} kN, Mz={Mz:+.3f} kNm\n"
+                        msg += (
+                            f"  Nudo {nudo.id}:  "
+                            f"Rx = {Rx:+.3f} kN,  "
+                            f"Ry = {Ry:+.3f} kN,  "
+                            f"Mz = {Mz:+.3f} kNm\n"
+                        )
 
-                if resultado.advertencias:
-                    msg += f"\n⚠️ Advertencias ({len(resultado.advertencias)}):\n"
-                    for adv in resultado.advertencias[:3]:  # Primeras 3
-                        msg += f"  • {adv}\n"
+                # Advertencias relevantes para el usuario (omitir las informativas de GH)
+                advertencias_usuario = [
+                    adv for adv in resultado.advertencias
+                    if "hiperestatica" not in adv.lower()
+                    and "isostatica" not in adv.lower()
+                    and "redundante x" not in adv.lower()[:15]
+                ]
+                if advertencias_usuario:
+                    msg += f"\nAdvertencias ({len(advertencias_usuario)}):\n"
+                    for adv in advertencias_usuario[:3]:
+                        msg += f"  * {adv}\n"
 
-                QMessageBox.information(self, "Análisis Completado", msg)
-                self.statusbar.showMessage("Análisis completado exitosamente", 5000)
+                QMessageBox.information(self, "Analisis Completado", msg)
+                self.statusbar.showMessage("Analisis completado exitosamente", 5000)
 
             else:
-                # Error en análisis
-                msg_error = "Error durante el análisis:\n\n"
-                msg_error += "\n".join(f"• {e}" for e in resultado.errores)
+                # Error en analisis
+                self._update_estado_analisis(exitoso=False)
+                msg_error = "Error durante el analisis:\n\n"
+                msg_error += "\n".join(f"- {e}" for e in resultado.errores)
 
-                QMessageBox.critical(self, "Error en Análisis", msg_error)
-                self.statusbar.showMessage("Error en análisis", 5000)
+                QMessageBox.critical(self, "Error en Analisis", msg_error)
+                self.statusbar.showMessage("Error en analisis", 5000)
 
         except Exception as e:
             import traceback
             error_detail = traceback.format_exc()
 
+            self._update_estado_analisis(exitoso=False)
             QMessageBox.critical(
                 self,
                 "Error Inesperado",
-                f"Ocurrió un error inesperado durante el análisis:\n\n{str(e)}\n\n"
-                f"Detalles técnicos:\n{error_detail[:500]}"
+                f"Ocurrio un error inesperado durante el analisis:\n\n{str(e)}\n\n"
+                f"Detalles tecnicos:\n{error_detail[:500]}"
             )
-            self.statusbar.showMessage("Error en análisis", 5000)
+            self.statusbar.showMessage("Error en analisis", 5000)
 
     def _on_ver_diagramas(self):
         """Muestra los diagramas de esfuerzos."""
@@ -1095,6 +1251,9 @@ class MainWindow(QMainWindow):
         """Maneja cambios en el modelo."""
         self._update_title()
         self._update_statusbar()
+        # Cualquier cambio en el modelo invalida el resultado anterior
+        self._resultado = None
+        self._update_estado_analisis(exitoso=None)
         self._refresh_canvas()
 
     def closeEvent(self, event):

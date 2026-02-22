@@ -475,11 +475,29 @@ class MotorMetodoFuerzas:
             )
 
         if self._coeficientes.condicionamiento > CONDITION_NUMBER_WARNING:
-            self._advertencias.append(
-                f"Matriz de flexibilidad mal condicionada "
-                f"(cond = {self._coeficientes.condicionamiento:.2e}). "
-                "Considere reseleccionar redundantes."
-            )
+            # Distinguir entre mal condicionamiento real y redundantes con
+            # contribución nula en flexión (p.ej. Rx en viga horizontal con
+            # cargas solo verticales → fii = 0 es físicamente correcto).
+            F = self._coeficientes.F
+            ceros_diagonales = [
+                i for i in range(len(F))
+                if abs(F[i, i]) < TOLERANCE
+            ]
+            if ceros_diagonales:
+                for idx in ceros_diagonales:
+                    red = self._redundantes[idx]
+                    self._advertencias.append(
+                        f"Redundante X{idx+1} ({red.descripcion}): "
+                        f"su diagrama de momentos es nulo para las cargas "
+                        f"aplicadas (fii = 0). Su valor sera 0 por equilibrio "
+                        f"y no indica inestabilidad real de la estructura."
+                    )
+            else:
+                self._advertencias.append(
+                    f"Matriz de flexibilidad mal condicionada "
+                    f"(cond = {self._coeficientes.condicionamiento:.2e}). "
+                    "Considere reseleccionar redundantes."
+                )
 
     def _calcular_movimientos_impuestos_en_redundantes(self) -> NDArray[np.float64]:
         """

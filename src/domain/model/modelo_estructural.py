@@ -88,7 +88,15 @@ class ModeloEstructural:
 
     @property
     def cargas(self) -> List[Carga]:
-        """Lista de todas las cargas del modelo."""
+        """Lista de todas las cargas del modelo (instantánea de solo lectura).
+
+        Devuelve una **copia** de la lista interna para proteger el estado
+        del modelo. Cualquier modificación directa sobre la lista retornada
+        (p.ej. ``.append()``) no tendrá efecto.
+
+        Para agregar, usar :meth:`agregar_carga`.
+        Para eliminar, usar :meth:`remover_carga`.
+        """
         return list(self._cargas)
 
     @property
