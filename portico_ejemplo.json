@@ -1,0 +1,95 @@
+{
+  "version": "1.0",
+  "nombre": "Portico Biempotrado",
+  "descripcion": "Portico plano 2D — GH=3. Columnas 4m, viga 6m. Carga distribuida 10 kN/m en viga + carga horizontal 5 kN en nudo superior izquierdo.",
+  "materiales": [
+    {
+      "nombre": "Acero A-36",
+      "E": 200000000.0,
+      "alpha": 1.2e-05,
+      "rho": 7850.0
+    }
+  ],
+  "secciones": [
+    {
+      "nombre": "SecRect 30x50",
+      "tipo": "SeccionRectangular",
+      "A": 0.15,
+      "Jz": 0.003125,
+      "h": 0.5,
+      "b": 0.3,
+      "_h": 0.5
+    }
+  ],
+  "nudos": [
+    {
+      "id": 1,
+      "x": 0.0,
+      "y": 0.0,
+      "nombre": "N1 - Base izq",
+      "vinculo": { "tipo": "Empotramiento" }
+    },
+    {
+      "id": 2,
+      "x": 0.0,
+      "y": 4.0,
+      "nombre": "N2 - Tope izq",
+      "vinculo": null
+    },
+    {
+      "id": 3,
+      "x": 6.0,
+      "y": 4.0,
+      "nombre": "N3 - Tope der",
+      "vinculo": null
+    },
+    {
+      "id": 4,
+      "x": 6.0,
+      "y": 0.0,
+      "nombre": "N4 - Base der",
+      "vinculo": { "tipo": "Empotramiento" }
+    }
+  ],
+  "barras": [
+    {
+      "id": 1,
+      "nudo_i_id": 1,
+      "nudo_j_id": 2,
+      "material_nombre": "Acero A-36",
+      "seccion_nombre": "SecRect 30x50"
+    },
+    {
+      "id": 2,
+      "nudo_i_id": 2,
+      "nudo_j_id": 3,
+      "material_nombre": "Acero A-36",
+      "seccion_nombre": "SecRect 30x50"
+    },
+    {
+      "id": 3,
+      "nudo_i_id": 4,
+      "nudo_j_id": 3,
+      "material_nombre": "Acero A-36",
+      "seccion_nombre": "SecRect 30x50"
+    }
+  ],
+  "cargas": [
+    {
+      "tipo": "CargaDistribuida",
+      "barra_id": 2,
+      "q1": 10.0,
+      "q2": 10.0,
+      "x1": 0.0,
+      "x2": null,
+      "angulo": -90.0
+    },
+    {
+      "tipo": "CargaPuntualNudo",
+      "nudo_id": 2,
+      "Fx": 5.0,
+      "Fy": 0.0,
+      "Mz": 0.0
+    }
+  ]
+}
