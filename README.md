@@ -1,32 +1,60 @@
-# PyANES-MF 🏗️
+# PyANES 🏗️
 
-**Sistema de Análisis Estructural por Método de las Fuerzas**
+**Sistema de Análisis Estructural de Pórticos Planos 2D**
 
 [![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/Tests-176%2F176%20passing-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-241%2F241%20passing-brightgreen.svg)](tests/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+> Anteriormente conocido como **PyANES-MF**. Renombrado a PyANES al incorporar el
+> Método de las Deformaciones como segundo motor de análisis independiente.
 
 ---
 
 ## 📋 Descripción
 
-PyANES-MF es un software de análisis estructural para **pórticos planos 2D hiperestáticos** utilizando el **Método de las Fuerzas** (también conocido como Método de Flexibilidad o Método de Compatibilidad de Deformaciones).
+PyANES es un software de análisis estructural para **pórticos planos 2D** que implementa dos métodos
+de resolución complementarios y los combina mediante un solver adaptativo con validación cruzada automática:
+
+| Motor | Método | Incógnitas | Cuándo usarlo |
+|-------|--------|-----------|---------------|
+| `MotorMetodoFuerzas` | Método de las Fuerzas (MF) | Fuerzas redundantes | Estructuras con pocos redundantes |
+| `MotorMetodoDeformaciones` | Método de las Deformaciones (MD) | Desplazamientos nodales | Cualquier estructura, siempre converge |
+| `resolver_con_fallback` | Solver Adaptativo (MF+MD) | Ambas | Validación cruzada automática |
 
 ### ✨ Características Principales
 
+**Motor de Análisis (MF):**
 - ✅ **Análisis hiperestático completo** mediante Método de las Fuerzas
 - ✅ **Trabajos virtuales** para cálculo de flexibilidades (fᵢⱼ) y términos independientes (e₀ᵢ)
-- ✅ **Resolución del SECE** (Sistema de Ecuaciones de Compatibilidad Elástica)
-- ✅ **Diagramas de esfuerzos** (N, V, M) con visualización profesional
-- ✅ **Deformada elástica** con factor de escala automático
+- ✅ **Resolución del SECE** [F]·{X} = -{e₀}
+- ✅ **Selección automática de redundantes** con heurística configurable
+
+**Motor de Análisis (MD):**
+- ✅ **Método de las Deformaciones** (Método de Rigidez Directo)
+- ✅ **Ensamblaje automático** de la matriz de rigidez global [K]
+- ✅ **Fuerzas de empotramiento** (FEF) para cargas distribuidas y puntuales sobre barras
+- ✅ **Numeración automática** de grados de libertad (GDL)
+
+**Solver Adaptativo:**
+- ✅ **Validación cruzada MD↔MF** con tolerancia configurable
+- ✅ **Búsqueda iterativa** de combinaciones de redundantes para MF
+- ✅ **Fallback automático** a MD cuando MF no converge
+- ✅ **Diagnóstico completo**: intentos, combinaciones, max diferencia
+
+**Cargas y Vínculos:**
 - ✅ **Cargas térmicas** (variación uniforme y gradiente térmico)
 - ✅ **Resortes elásticos** (kx, ky, kθ) como vínculos
 - ✅ **Movimientos impuestos** (hundimientos, levantamientos, rotaciones prescritas)
+
+**Resultados y Visualización:**
+- ✅ **Diagramas de esfuerzos** (N, V, M) con visualización profesional
+- ✅ **Deformada elástica** con factor de escala automático
 - ✅ **Interfaz gráfica interactiva** (PyQt6) con canvas drag-and-drop
 - ✅ **Serialización de proyectos** en formato JSON (guardar/cargar)
 - ✅ **Sistema Undo/Redo** (Ctrl+Z / Ctrl+Y)
-- ✅ **Suite de 176 tests** automatizados
 - ✅ **Exportación de resultados** en formato PNG (300 DPI)
+- ✅ **Suite de 241 tests** automatizados
 
 ---
 
@@ -41,7 +69,7 @@ PyANES-MF es un software de análisis estructural para **pórticos planos 2D hip
 
 ```bash
 # 1. Clonar o descargar el repositorio
-git clone https://github.com/tu-usuario/py-anes-mf.git
+git clone https://github.com/federicoarielcasado/py-anes-mf.git
 cd py-anes-mf
 
 # 2. Crear entorno virtual (recomendado)
@@ -69,7 +97,9 @@ python examples/ejemplo_visualizacion.py
 
 ## 📖 Guía de Uso
 
-### Caso 1: Viga Biempotrada con Carga Puntual
+### Caso 1: Resolver con Solver Adaptativo (recomendado)
+
+El solver adaptativo usa MD como referencia e intenta validar con MF automáticamente:
 
 ```python
 from src.domain.entities.material import Material
@@ -77,125 +107,139 @@ from src.domain.entities.seccion import SeccionPerfil
 from src.domain.entities.vinculo import Empotramiento
 from src.domain.entities.carga import CargaPuntualBarra
 from src.domain.model.modelo_estructural import ModeloEstructural
-from src.domain.analysis.motor_fuerzas import MotorMetodoFuerzas
+from src.domain.analysis import resolver_con_fallback
 
-# 1. Definir material y sección
-acero = Material(nombre="Acero A-36", E=200e6)  # E en kN/m²
-ipe220 = SeccionPerfil(
-    nombre="IPE 220",
-    _A=33.4e-4,    # Área en m²
-    _Iz=2772e-8,   # Momento de inercia en m⁴
-    _h=0.220       # Altura en m
-)
+# Definir material y sección
+acero = Material(nombre="Acero A-36", E=200e6)
+ipe220 = SeccionPerfil(nombre="IPE 220", _A=33.4e-4, _Iz=2772e-8, _h=0.220)
 
-# 2. Crear modelo estructural
+# Crear modelo
 modelo = ModeloEstructural("Viga biempotrada")
-
-# 3. Definir nudos (coordenadas en metros)
-nA = modelo.agregar_nudo(0.0, 0.0, "A")  # Extremo izquierdo
-nB = modelo.agregar_nudo(6.0, 0.0, "B")  # Extremo derecho
-
-# 4. Crear barra
+nA = modelo.agregar_nudo(0.0, 0.0, "A")
+nB = modelo.agregar_nudo(6.0, 0.0, "B")
 barra = modelo.agregar_barra(nA, nB, acero, ipe220)
-
-# 5. Aplicar vínculos (empotramientos en ambos extremos)
 modelo.asignar_vinculo(nA.id, Empotramiento())
 modelo.asignar_vinculo(nB.id, Empotramiento())
 
-# 6. Aplicar carga puntual de 10 kN en centro de luz
-carga = CargaPuntualBarra(
-    barra=barra,
-    P=10.0,      # Magnitud en kN
-    a=3.0,       # Distancia desde nudo i en m
-    angulo=+90   # +90° = hacia abajo (convención TERNA)
-)
+carga = CargaPuntualBarra(barra=barra, P=10.0, a=3.0, angulo=+90)
 modelo.agregar_carga(carga)
 
-# 7. Resolver mediante Método de las Fuerzas
-motor = MotorMetodoFuerzas(modelo)
-resultado = motor.resolver()
+# Resolver con validación cruzada automática
+resultado = resolver_con_fallback(modelo, tol=1e-2, verbose=True)
 
-# 8. Consultar resultados
-print(f"Grado de hiperestaticidad: {resultado.grado_hiperestaticidad}")
-print(f"Redundantes: {[r.tipo.name for r in resultado.redundantes]}")
+print(resultado.resumen())
+# === Solver Adaptativo ===
+#   Metodo exitoso  : ambos
+#   Intentos MF     : 1
+#   Max diferencia  : 3.55e-14
+#   Validacion OK   : True
 
-# Reacciones en apoyos
-for nudo_id, (Rx, Ry, Mz) in resultado.reacciones_finales.items():
-    nudo = modelo.obtener_nudo(nudo_id)
-    print(f"{nudo.nombre}: Rx={Rx:+.2f} kN, Ry={Ry:+.2f} kN, Mz={Mz:+.2f} kNm")
+# Acceder al resultado (MD siempre disponible)
+M_centro = resultado.mejor_resultado.M(barra.id, 3.0)
+print(f"M(centro) = {M_centro:.3f} kNm")  # ≈ -3.75 kNm
 
-# Momento flector en centro de luz (x=3m)
-M_centro = resultado.M(barra.id, 3.0)
-print(f"Momento en centro: M = {M_centro:.2f} kNm")
-
-# Resultado teórico esperado: M = -P·L/8 = -10·6/8 = -7.5 kNm
+# Si MF también coincidió, ver redundantes
+if resultado.ambos_validos:
+    for r in resultado.redundantes_usados:
+        print(f"  {r.descripcion}: valor en resultados MF")
 ```
 
-### Caso 2: Viga Continua con Hundimiento de Apoyo
+### Caso 2: Método de las Deformaciones directamente
+
+```python
+from src.domain.analysis import analizar_estructura_deformaciones
+
+resultado_md = analizar_estructura_deformaciones(modelo)
+
+# Reacciones
+for nudo_id, (Rx, Ry, Mz) in resultado_md.reacciones_finales.items():
+    print(f"Nudo {nudo_id}: Rx={Rx:+.2f} kN, Ry={Ry:+.2f} kN, Mz={Mz:+.2f} kNm")
+
+# Diagramas
+M_en_x = resultado_md.M(barra.id, x=3.0)
+V_en_x = resultado_md.V(barra.id, x=3.0)
+N_en_x = resultado_md.N(barra.id, x=3.0)
+```
+
+### Caso 3: Método de las Fuerzas con selección manual de redundantes
+
+```python
+from src.domain.analysis import MotorMetodoFuerzas, Redundante, TipoRedundante
+
+redundantes = [
+    Redundante(tipo=TipoRedundante.REACCION_MZ, nudo_id=nA.id, indice=1),
+    Redundante(tipo=TipoRedundante.REACCION_MZ, nudo_id=nB.id, indice=2),
+]
+
+motor = MotorMetodoFuerzas(modelo, seleccion_manual_redundantes=redundantes)
+resultado_mf = motor.resolver()
+
+print(f"X1 = {resultado_mf.Xi(1):.3f} kNm")
+print(f"X2 = {resultado_mf.Xi(2):.3f} kNm")
+```
+
+### Caso 4: Validación cruzada MF vs MD
+
+```python
+from src.domain.analysis import (
+    analizar_estructura_deformaciones,
+    comparar_resultados,
+    MotorMetodoFuerzas,
+)
+
+r_md = analizar_estructura_deformaciones(modelo)
+r_mf = MotorMetodoFuerzas(modelo).resolver()
+
+comp = comparar_resultados(r_mf, r_md, n_puntos=21, tol=1e-3)
+print(f"Coinciden: {comp['coinciden']}")
+print(f"Max diferencia: {comp['max_diferencia']:.2e}")
+```
+
+### Caso 5: Viga Continua con Hundimiento de Apoyo
 
 ```python
 from src.domain.entities.vinculo import ApoyoFijo
 from src.domain.entities.carga import MovimientoImpuesto
 
-# Crear viga continua de 2 vanos (12m total)
 modelo = ModeloEstructural("Viga continua")
 nA = modelo.agregar_nudo(0.0, 0.0, "A")
-nB = modelo.agregar_nudo(6.0, 0.0, "B")  # Apoyo central
+nB = modelo.agregar_nudo(6.0, 0.0, "B")
 nC = modelo.agregar_nudo(12.0, 0.0, "C")
 
 modelo.agregar_barra(nA, nB, acero, ipe220)
 modelo.agregar_barra(nB, nC, acero, ipe220)
 
-# Vínculos
 modelo.asignar_vinculo(nA.id, Empotramiento())
 modelo.asignar_vinculo(nB.id, ApoyoFijo())
 modelo.asignar_vinculo(nC.id, ApoyoFijo())
 
-# Hundimiento de 10mm en apoyo central B
 hundimiento = MovimientoImpuesto(
     nudo=nB,
     delta_x=0.0,
-    delta_y=-0.010,  # -10mm (convención TERNA: Y+ hacia abajo)
+    delta_y=-0.010,   # -10mm (Y+ hacia abajo)
     delta_theta=0.0
 )
 modelo.agregar_carga(hundimiento)
 
-# Resolver y analizar redistribución de momentos
-motor = MotorMetodoFuerzas(modelo)
-resultado = motor.resolver()
-
-print(f"Momento en A: {resultado.M(1, 0.0):.2f} kNm")
-print(f"Momento en C: {resultado.M(2, 6.0):.2f} kNm")
+resultado = resolver_con_fallback(modelo, tol=1e-2)
 ```
 
-### Caso 3: Visualización de Diagramas
+### Caso 6: Visualización de Diagramas
 
 ```python
-from src.ui.visualization.diagramas import (
-    graficar_diagrama_momentos,
-    graficar_diagrama_combinado
-)
+from src.ui.visualization.diagramas import graficar_diagrama_combinado
+from src.ui.visualization.deformada import graficar_deformada_elastica
 
-# Graficar diagrama de momentos
-graficar_diagrama_momentos(
-    barras=modelo.barras,
-    resultado=resultado,
-    archivo_salida="momento_flector.png"
-)
-
-# Graficar diagrama combinado (M + V + N)
 graficar_diagrama_combinado(
     barras=modelo.barras,
-    resultado=resultado,
+    resultado=resultado.mejor_resultado,
     archivo_salida="diagramas_completos.png"
 )
 
-# Ver deformada
-from src.ui.visualization.deformada import graficar_deformada_elastica
 graficar_deformada_elastica(
     barras=modelo.barras,
-    resultado=resultado,
-    factor_escala=50.0,  # Exageración
+    resultado=resultado.mejor_resultado,
+    factor_escala=50.0,
     archivo_salida="deformada.png"
 )
 ```
@@ -206,62 +250,69 @@ graficar_deformada_elastica(
 
 ### Método de las Fuerzas (Método de Flexibilidad)
 
-El **Método de las Fuerzas** es un procedimiento clásico para analizar estructuras hiperestáticas. Consiste en:
+Método clásico para análisis hiperestático. El sistema a resolver es:
 
-1. **Cálculo del grado de hiperestaticidad**: `gh = r + v - 3n`
-   - `r`: reacciones de vínculo
-   - `v`: vínculos internos
-   - `n`: número de nudos
+```
+[F]·{X} = -{e₀}
+```
 
-2. **Selección de redundantes**: Se eligen `gh` reacciones o esfuerzos internos que se eliminarán para convertir la estructura en isostática.
+Donde `[F]` es la matriz de flexibilidad (fᵢⱼ calculados por Trabajos Virtuales),
+`{X}` son los redundantes y `{e₀}` los términos independientes.
 
-3. **Generación de subestructuras**:
-   - **Estructura fundamental (M⁰)**: Estructura isostática con cargas reales
-   - **Subestructuras Xᵢ (M̄ᵢ)**: Estructura isostática con carga unitaria en dirección del redundante i
+**Pasos:**
+1. Calcular GH = r + v - 3n
+2. Seleccionar GH redundantes → estructura fundamental isostática
+3. Calcular fᵢⱼ = ∫(M̄ᵢ·M̄ⱼ)/(EI) dx y e₀ᵢ = ∫(M̄ᵢ·M⁰)/(EI) dx
+4. Resolver [F]·{X} = -{e₀}
+5. Superponer: Mₕ = M⁰ + Σ(Xᵢ·M̄ᵢ)
 
-4. **Cálculo de coeficientes de flexibilidad** mediante Teorema de Trabajos Virtuales:
-   ```
-   fᵢⱼ = ∫(M̄ᵢ × M̄ⱼ)/(E·I) dx + ∫(N̄ᵢ × N̄ⱼ)/(E·A) dx
-   e₀ᵢ = ∫(M̄ᵢ × M⁰)/(E·I) dx + ∫(N̄ᵢ × N⁰)/(E·A) dx + efectos térmicos
-   ```
+### Método de las Deformaciones (Método de Rigidez)
 
-5. **Resolución del SECE** (Sistema de Ecuaciones de Compatibilidad Elástica):
-   ```
-   [F]·{X} = -{e₀}
-   ```
-   Donde `[F]` es la matriz de flexibilidad (simétrica), `{X}` son los redundantes, y `{e₀}` son los términos independientes.
+Método matricial sistemático. El sistema a resolver es:
 
-6. **Superposición de resultados**:
-   ```
-   Mₕ = M⁰ + Σ(Xᵢ × M̄ᵢ)
-   Vₕ = V⁰ + Σ(Xᵢ × V̄ᵢ)
-   Nₕ = N⁰ + Σ(Xᵢ × N̄ᵢ)
-   ```
+```
+[K]·{d} = {F_ext} - {F_0}
+```
+
+Donde `[K]` es la matriz de rigidez global, `{d}` son los desplazamientos nodales libres,
+`{F_ext}` las cargas externas nodales y `{F_0}` las fuerzas de empotramiento equivalentes.
+
+**Pasos:**
+1. Numerar GDL: nudo i → (3i, 3i+1, 3i+2) = (Ux, Uy, θz)
+2. Construir k_local 6×6 (Euler-Bernoulli) por barra
+3. Rotar: K_elem = T⁶ · k_local · T⁶ᵀ
+4. Ensamblar [K] global (scatter-add)
+5. Aplicar condiciones de frontera (GDL restringidos)
+6. Resolver el sistema lineal
+7. Recuperar esfuerzos por equilibrio local: N(x), V(x), M(x)
+
+### Solver Adaptativo
+
+```
+MD (siempre correcto) ──→ resultado de referencia
+         │
+         ▼
+Iterar C(n_cand, GH) combinaciones de redundantes:
+  ├─ Descartar inestables
+  ├─ Intentar MF con esa combinación
+  ├─ Comparar MF vs MD (tolerancia configurable)
+  └─ Primera coincidencia → retornar "ambos"
+         │
+         ▼ (si ninguna coincide)
+Retornar solo MD (siempre confiable)
+```
 
 ### Sistema de Coordenadas (TERNA)
 
-**Convención adoptada en PyANES-MF:**
+**Convención adoptada en PyANES:**
 
 - **X+ → Derecha**
 - **Y+ → Abajo** ⬇️ (gravedad positiva)
-- **Mz+ → Horario** ⟳ (convención de rotación)
+- **Mz+ → Horario** ⟳
 
-**Ángulos de carga:**
-- `0°` = Horizontal derecha →
-- `+90°` = Vertical abajo ⬇️
-- `-90°` = Vertical arriba ⬆️
-- `180°` = Horizontal izquierda ←
+**Ángulos de carga:** `+90°` = hacia abajo ⬇️, `-90°` = hacia arriba ⬆️
 
-**Momentos flectores:**
-- **Positivo**: Tracciona fibra inferior (⌣ en viga horizontal)
-- **Negativo**: Tracciona fibra superior (⌢ en viga horizontal)
-
-**Fórmula de momento respecto a un punto**:
-```
-M = -Fy × dx + Fx × dy
-```
-
-Ver documentación completa en `docs/teoria/SISTEMA_COORDENADAS_LOCALES.md`.
+**Momentos:** positivo = tracciona fibra inferior (sagging en viga horizontal)
 
 ---
 
@@ -272,18 +323,22 @@ Ver documentación completa en `docs/teoria/SISTEMA_COORDENADAS_LOCALES.md`.
 ```
 py-anes-mf/
 ├── src/
-│   ├── domain/               # Lógica de negocio (independiente de UI)
+│   ├── domain/
 │   │   ├── entities/         # Nudo, Barra, Material, Sección, Carga, Vínculo
-│   │   ├── mechanics/        # Equilibrio, cálculo de esfuerzos
-│   │   ├── analysis/         # Motor del Método de Fuerzas
-│   │   │   ├── motor_fuerzas.py           # Orquestador principal
-│   │   │   ├── redundantes.py             # Selección de redundantes
+│   │   ├── mechanics/        # Equilibrio, cálculo de esfuerzos isostáticos
+│   │   ├── analysis/         # Motores de análisis
+│   │   │   ├── motor_fuerzas.py           # Motor MF (SECE)
+│   │   │   ├── motor_deformaciones.py     # Motor MD (Rigidez)
+│   │   │   ├── solver_adaptativo.py       # Solver MF+MD con fallback
+│   │   │   ├── fuerzas_empotramiento.py   # FEF para MD
+│   │   │   ├── numerador_gdl.py           # Numeración de GDL para MD
+│   │   │   ├── redundantes.py             # Selección de redundantes para MF
 │   │   │   ├── subestructuras.py          # Generación de M⁰ y Xᵢ
 │   │   │   ├── trabajos_virtuales.py      # Cálculo de fᵢⱼ y e₀ᵢ
 │   │   │   └── sece_solver.py             # Resolución del SECE
 │   │   └── model/            # ModeloEstructural (contenedor)
 │   ├── gui/                  # Interfaz gráfica (PyQt6)
-│   │   ├── main_window.py    # Ventana principal
+│   │   ├── main_window.py
 │   │   ├── canvas/           # Canvas interactivo drag-and-drop
 │   │   ├── widgets/          # Panel de propiedades y resultados
 │   │   ├── dialogs/          # Diálogos de cargas y redundantes
@@ -293,7 +348,8 @@ py-anes-mf/
 │   ├── utils/                # Constantes, integración numérica
 │   └── data/                 # Materiales, secciones, serialización JSON
 ├── tests/
-│   ├── unit/                 # Tests unitarios
+│   ├── unit/                 # Tests unitarios (motor_fuerzas, motor_deformaciones,
+│   │                         #   solver_adaptativo, cargas, vínculos...)
 │   ├── integration/          # Tests de integración y casos clásicos
 │   └── domain/               # Tests de entidades del dominio
 ├── examples/                 # Ejemplos didácticos
@@ -304,7 +360,7 @@ py-anes-mf/
 │   ├── ejemplo_movimientos_impuestos.py
 │   └── ejemplo_viga_biempotrada_gh1.py
 ├── docs/
-│   ├── teoria/               # Documentación técnica
+│   ├── teoria/
 │   │   ├── NOTAS_CARGAS_TERMICAS.md
 │   │   ├── NOTAS_RESORTES_ELASTICOS.md
 │   │   ├── NOTAS_MOVIMIENTOS_IMPUESTOS.md
@@ -314,64 +370,31 @@ py-anes-mf/
 │   ├── ARQUITECTURA_PROYECTO.md
 │   └── PLANIFICACION_DESARROLLO.md
 ├── main.py                   # Punto de entrada (lanza GUI)
-├── README.md                 # Este archivo
+├── README.md
 ├── CLAUDE.md                 # Contexto para agentes IA
-└── requirements.txt          # Dependencias
+└── requirements.txt
 ```
 
-### Flujo de Ejecución (Método de las Fuerzas)
+### Flujo de Ejecución
 
 ```
-┌─────────────────────────────────────────────────┐
-│ 1. ModeloEstructural                            │
-│    - Nudos, Barras, Cargas, Vínculos           │
-└──────────────────┬──────────────────────────────┘
-                   │
-                   v
-┌─────────────────────────────────────────────────┐
-│ 2. MotorMetodoFuerzas.resolver()                │
-│    - Validar modelo                             │
-│    - Calcular GH                                │
-│    - Seleccionar redundantes                    │
-└──────────────────┬──────────────────────────────┘
-                   │
-                   v
-┌─────────────────────────────────────────────────┐
-│ 3. GeneradorSubestructuras                      │
-│    - Estructura fundamental (M⁰, V⁰, N⁰)        │
-│    - Subestructuras Xᵢ (M̄ᵢ, V̄ᵢ, N̄ᵢ)            │
-└──────────────────┬──────────────────────────────┘
-                   │
-                   v
-┌─────────────────────────────────────────────────┐
-│ 4. CalculadorFlexibilidad                       │
-│    - Integración numérica (Trabajos Virtuales)  │
-│    - Matriz [F] (fᵢⱼ)                           │
-│    - Vector {e₀}                                │
-└──────────────────┬──────────────────────────────┘
-                   │
-                   v
-┌─────────────────────────────────────────────────┐
-│ 5. SolverSECE                                   │
-│    - Resolver [F]·{X} = -{e₀}                   │
-│    - Verificar condicionamiento                 │
-└──────────────────┬──────────────────────────────┘
-                   │
-                   v
-┌─────────────────────────────────────────────────┐
-│ 6. Superposición de Resultados                  │
-│    - Mₕ = M⁰ + Σ(Xᵢ × M̄ᵢ)                      │
-│    - Reacciones finales                         │
-│    - Diagramas finales                          │
-└──────────────────┬──────────────────────────────┘
-                   │
-                   v
-┌─────────────────────────────────────────────────┐
-│ 7. ResultadoAnalisis                            │
-│    - Acceso a M(x), V(x), N(x)                  │
-│    - Reacciones en vínculos                     │
-│    - Valores de redundantes                     │
-└─────────────────────────────────────────────────┘
+ModeloEstructural (nudos, barras, cargas, vínculos)
+         │
+         ├──→ MotorMetodoDeformaciones.resolver()
+         │         [K]{d} = {F} - {F0}
+         │         → ResultadoAnalisis (MD)
+         │
+         ├──→ MotorMetodoFuerzas.resolver()
+         │         [F]{X} = -{e0}
+         │         → ResultadoAnalisis (MF)
+         │
+         └──→ resolver_con_fallback()
+                   MD como referencia
+                   + iteración MF hasta coincidencia
+                   → ResultadoAdaptativo
+                         .resultado_md
+                         .resultado_mf
+                         .validacion_cruzada
 ```
 
 ---
@@ -380,179 +403,141 @@ py-anes-mf/
 
 ### Suite de Tests Automatizados
 
-PyANES-MF cuenta con **176 tests automatizados** que garantizan la corrección de los cálculos:
+PyANES cuenta con **241 tests automatizados** que garantizan la corrección de los cálculos:
 
 ```bash
 # Ejecutar todos los tests
 pytest -v --tb=no -q
 
-# Tests unitarios (cargas térmicas, resortes, movimientos impuestos)
-pytest tests/unit/ -v
+# Por módulo
+pytest tests/unit/test_motor_deformaciones.py -v   # 43 tests MD
+pytest tests/unit/test_solver_adaptativo.py -v     # 22 tests Solver Adaptativo
+pytest tests/unit/test_carga_termica.py -v         # 20 tests cargas térmicas
+pytest tests/unit/test_resorte_elastico.py -v      # 30 tests resortes
+pytest tests/integration/ -v                       # casos clásicos de validación
 
-# Tests de integración (casos clásicos, esfuerzos)
-pytest tests/integration/ -v
-
-# Tests de entidades del dominio
-pytest tests/domain/ -v
-
-# Ver cobertura de tests
+# Ver cobertura
 pytest --cov=src --cov-report=html
 ```
 
 ### Casos de Validación
 
-Los siguientes casos han sido validados contra soluciones analíticas:
-
-1. **Viga biempotrada con carga puntual** (GH=3)
-   - Solución teórica: M_centro = -P·L/8
-   - Error numérico: < 0.1%
-
-2. **Viga continua de 2 vanos** (GH=4)
-   - Validado con Timoshenko, *Theory of Structures*
-
-3. **Pórtico rectangular** (GH=3)
-   - Validado con Hibbeler, *Structural Analysis*
-
-4. **Cargas térmicas** (variación uniforme y gradiente)
-   - Validado con Gere & Weaver, *Analysis of Framed Structures*
-
-5. **Movimientos impuestos** (hundimientos de apoyo)
-   - Validado con casos clásicos de la literatura
+| Caso | GH | Error numérico |
+|------|----|---------------|
+| Viga biempotrada carga puntual (MF) | 3 | < 0.1% |
+| Viga biempotrada carga uniforme (MD) | 2 | < 0.01% |
+| Viga simplemente apoyada (MD) | 0 | < 0.01% |
+| Pórtico rectangular (MF+MD) | 3 | < 0.1% |
+| Cargas térmicas | — | < 0.5% |
+| Movimientos impuestos | — | < 0.1% |
 
 ---
 
 ## 📚 API Principal
 
-### Clase `MotorMetodoFuerzas`
+### `resolver_con_fallback`
 
-**Constructor:**
 ```python
-MotorMetodoFuerzas(
-    modelo: ModeloEstructural,
-    seleccion_manual_redundantes: Optional[List[Redundante]] = None,
-    incluir_deformacion_axial: bool = False,
-    incluir_deformacion_cortante: bool = False,
-    metodo_resolucion: str = "directo"
-)
+from src.domain.analysis import resolver_con_fallback
+
+resultado = resolver_con_fallback(
+    modelo,
+    tol=1e-3,           # Tolerancia [kN, kNm] para comparar MF vs MD
+    max_combinaciones=500,  # Limite de combinaciones de redundantes
+    verbose=False       # Emitir mensajes de logging
+) -> ResultadoAdaptativo
 ```
 
-**Parámetros:**
-- `modelo`: Instancia de ModeloEstructural con geometría, cargas y vínculos
-- `seleccion_manual_redundantes`: (Opcional) Lista de redundantes seleccionados manualmente
-- `incluir_deformacion_axial`: Si True, incluye efectos de deformación axial en fᵢⱼ
-- `incluir_deformacion_cortante`: Si True, incluye efectos de deformación por cortante
-- `metodo_resolucion`: Método para resolver SECE (`"directo"`, `"cholesky"`, `"iterativo"`)
+**`ResultadoAdaptativo`** — propiedades principales:
 
-**Método principal:**
+| Propiedad | Tipo | Descripción |
+|-----------|------|-------------|
+| `mejor_resultado` | `ResultadoAnalisis` | Resultado MD (siempre correcto) |
+| `resultado_mf` | `ResultadoAnalisis?` | Resultado MF (None si no coincidió) |
+| `ambos_validos` | `bool` | True si MF y MD coincidieron |
+| `max_diferencia` | `float` | Máxima diferencia MF-MD [kN,kNm] |
+| `intentos_mf` | `int` | Combinaciones probadas |
+| `redundantes_usados` | `List[Redundante]?` | Combo MF ganadora |
+| `resumen()` | `str` | Texto diagnóstico para imprimir |
+
+### `MotorMetodoDeformaciones`
+
 ```python
+from src.domain.analysis import MotorMetodoDeformaciones, analizar_estructura_deformaciones
+
+motor = MotorMetodoDeformaciones(modelo)
+resultado = motor.resolver() -> ResultadoAnalisis
+
+# O la función de conveniencia:
+resultado = analizar_estructura_deformaciones(modelo)
+```
+
+### `MotorMetodoFuerzas`
+
+```python
+from src.domain.analysis import MotorMetodoFuerzas
+
+motor = MotorMetodoFuerzas(
+    modelo,
+    seleccion_manual_redundantes=None,  # auto si None
+    incluir_deformacion_axial=False,
+    incluir_deformacion_cortante=False,
+    metodo_resolucion="directo"         # "directo", "cholesky", "iterativo"
+)
 resultado = motor.resolver() -> ResultadoAnalisis
 ```
 
-**Retorna:**
-- `ResultadoAnalisis` con:
-  - `grado_hiperestaticidad`: int
-  - `redundantes`: List[Redundante]
-  - `valores_X`: NDArray (valores de redundantes resueltos)
-  - `reacciones_finales`: Dict[int, Tuple[float, float, float]]
-  - `diagramas_finales`: Dict[int, DiagramaEsfuerzos]
-  - `M(barra_id, x)`: Momento flector en posición x
-  - `V(barra_id, x)`: Cortante en posición x
-  - `N(barra_id, x)`: Axial en posición x
-
-### Clase `ModeloEstructural`
-
-**Métodos principales:**
+### `ResultadoAnalisis` — acceso a resultados
 
 ```python
-# Agregar nudos
-nudo = modelo.agregar_nudo(x: float, y: float, nombre: str = "") -> Nudo
+# Esfuerzos en posición x de una barra
+resultado.M(barra_id, x)   # Momento flector [kNm]
+resultado.V(barra_id, x)   # Cortante [kN]
+resultado.N(barra_id, x)   # Axil [kN]
 
-# Agregar barras
-barra = modelo.agregar_barra(
-    nudo_i: Nudo,
-    nudo_j: Nudo,
-    material: Material,
-    seccion: Seccion,
-    nombre: str = ""
-) -> Barra
+# Reacciones en nudos vinculados
+Rx, Ry, Mz = resultado.reacciones_finales[nudo_id]
 
-# Asignar vínculos
-modelo.asignar_vinculo(nudo_id: int, vinculo: Vinculo) -> None
-
-# Agregar cargas
-modelo.agregar_carga(carga: Carga) -> None
-
-# Propiedades
-modelo.grado_hiperestaticidad -> int
-modelo.nudos -> List[Nudo]
-modelo.barras -> List[Barra]
-modelo.cargas -> List[Carga]
+# Redundantes (solo MF)
+resultado.Xi(1)   # Valor del primer redundante
 ```
-
-### Tipos de Cargas Soportadas
-
-1. **CargaPuntualNudo**: Carga en un nudo
-   ```python
-   CargaPuntualNudo(nudo, Fx=0.0, Fy=0.0, Mz=0.0)
-   ```
-
-2. **CargaPuntualBarra**: Carga sobre una barra
-   ```python
-   CargaPuntualBarra(barra, P, a, angulo)
-   ```
-
-3. **CargaDistribuidaBarra**: Carga distribuida uniforme/triangular
-   ```python
-   CargaDistribuidaBarra(barra, q1, q2, tipo='uniforme', angulo=-90)
-   ```
-
-4. **CargaTermica**: Variación de temperatura
-   ```python
-   CargaTermica(barra, delta_T_uniforme=0.0, delta_T_gradiente=0.0)
-   ```
-
-5. **MovimientoImpuesto**: Hundimiento/rotación prescrita
-   ```python
-   MovimientoImpuesto(nudo, delta_x=0.0, delta_y=0.0, delta_theta=0.0)
-   ```
-
-### Tipos de Vínculos Soportados
-
-1. **Empotramiento**: Ux=Uy=θz=0
-2. **ApoyoFijo**: Ux=Uy=0, θz libre
-3. **Rodillo**: Una dirección restringida
-4. **ResorteElastico**: Vínculo con rigidez finita (kx, ky, kθ)
 
 ---
 
 ## 🔬 Precisión Numérica
 
-PyANES-MF utiliza métodos numéricos robustos para garantizar precisión:
-
-- **Integración numérica**: Simpson con subdivisión adaptativa
-- **Tolerancia en SECE**: Residual < 1×10⁻⁸
-- **Condicionamiento de matriz F**: Advertencia si cond(F) > 1×10¹²
-- **Verificación de equilibrio**: |ΣF|, |ΣM| < 1×10⁻⁶
+| Aspecto | Valor |
+|---------|-------|
+| Integración numérica (MF) | Simpson con subdivisión adaptativa |
+| Residual SECE | < 1×10⁻⁸ |
+| Condicionamiento [F] | Advertencia si cond(F) > 1×10¹² |
+| Tolerancia comparación MF-MD | configurable (default 1×10⁻³) |
+| Verificación de equilibrio | \|ΣF\|, \|ΣM\| < 1×10⁻⁶ |
 
 ---
 
 ## 🎓 Referencias Bibliográficas
 
 1. **Timoshenko, S. & Young, D.H.** (1965). *Theory of Structures*. McGraw-Hill.
-   - Método de las fuerzas clásico
-
 2. **Gere, J.M. & Weaver, W.** (1965). *Analysis of Framed Structures*. Van Nostrand.
-   - Formulación matricial, coeficientes de flexibilidad
-
 3. **Hibbeler, R.C.** (2018). *Structural Analysis*. 10th Edition, Pearson.
-   - Casos de validación modernos, convenciones de signos
-
 4. **Weaver, W. & Gere, J.M.** (1990). *Matrix Analysis of Framed Structures*. 3rd Ed.
-   - Integración numérica de trabajos virtuales
 
 ---
 
 ## 📝 Changelog
+
+### v2.0.0 (11 de Marzo de 2026)
+
+**Incorporado:**
+- ✅ Motor completo del Método de las Deformaciones (`MotorMetodoDeformaciones`)
+- ✅ Ensamblaje de matriz de rigidez global [K] con transformación de coordenadas
+- ✅ Calculador de Fuerzas de Empotramiento (FEF) — cargas distribuidas y puntuales
+- ✅ Numerador de GDL automático (`NumeradorGDL`)
+- ✅ Solver Adaptativo con búsqueda iterativa de redundantes (`resolver_con_fallback`)
+- ✅ Validación cruzada automática MF↔MD (`comparar_resultados`)
+- ✅ 65 nuevos tests automatizados (241 total)
+- ✅ Renombrado de PyANES-MF → PyANES
 
 ### v1.0.0 (19 de Febrero de 2026)
 
@@ -560,25 +545,10 @@ PyANES-MF utiliza métodos numéricos robustos para garantizar precisión:
 - ✅ Motor completo del Método de las Fuerzas
 - ✅ Trabajos virtuales con integración numérica
 - ✅ Resolución del SECE con múltiples métodos
-- ✅ Diagramas de esfuerzos (M, V, N)
-- ✅ Deformada elástica
-- ✅ Cargas térmicas
-- ✅ Resortes elásticos
-- ✅ Movimientos impuestos
-- ✅ Visualización profesional (Matplotlib)
-- ✅ 168 tests automatizados
-
-**Estado del proyecto:** ✅ **Funcional y listo para uso profesional/académico**
-
----
-
-### Áreas de mejora en revisión:
-
-- [ ] Interfaz gráfica interactiva (PyQt6/Tkinter)
-- [ ] Exportación de resultados en PDF vectorial
-- [ ] Análisis de pórticos espaciales 3D
-- [ ] Integración con software CAD
-- [ ] Optimización automática de secciones
+- ✅ Diagramas de esfuerzos (M, V, N) y deformada elástica
+- ✅ Cargas térmicas, resortes elásticos, movimientos impuestos
+- ✅ Interfaz gráfica PyQt6 con drag-and-drop
+- ✅ 176 tests automatizados
 
 ---
 
@@ -593,9 +563,9 @@ Este proyecto está licenciado bajo la **Licencia MIT** - ver el archivo [LICENS
 **Federico** - Ingeniería Civil
 
 - 🎓 Especialización: Análisis estructural avanzado
-- 💻 Stack técnico: Python, NumPy, SciPy, Matplotlib
-- 📚 Dominio: Método de las Fuerzas, Trabajos Virtuales, Mecánica Estructural
+- 💻 Stack técnico: Python, NumPy, SciPy, Matplotlib, PyQt6
+- 📚 Dominio: Método de las Fuerzas, Método de las Deformaciones, Trabajos Virtuales
 
 ---
 
-*Última actualización: 20 de Febrero de 2026*
+*Última actualización: 11 de Marzo de 2026*
