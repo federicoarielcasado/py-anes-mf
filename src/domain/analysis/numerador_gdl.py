@@ -3,6 +3,10 @@ Numeración de Grados de Libertad (GDL) para el Método de las Deformaciones.
 
 Asigna índices globales a cada GDL (Ux, Uy, theta_z) de cada nudo
 del modelo estructural, distinguiendo entre GDL libres y restringidos.
+
+Los resortes elásticos (ResorteElastico) NO generan GDL restringidos;
+en su lugar se registran en ``gdl_resorte_map`` para que el motor
+añada la rigidez correspondiente a la diagonal de K.
 """
 
 from __future__ import annotations
@@ -51,6 +55,8 @@ class NumeradorGDL:
     )
     _indices_libres: List[int] = field(default_factory=list, repr=False)
     _indices_restringidos: List[int] = field(default_factory=list, repr=False)
+    # Mapa {gdl_global: k_value} para GDL con resorte elástico (no restringidos).
+    _gdl_resorte_map: Dict[int, float] = field(default_factory=dict, repr=False)
     _calculado: bool = field(default=False, repr=False)
 
     def numerar(self) -> Dict[int, Tuple[int, int, int]]:
@@ -60,7 +66,10 @@ class NumeradorGDL:
         Returns:
             Diccionario {nudo_id: (gdl_ux, gdl_uy, gdl_theta)}
         """
+        from src.domain.entities.vinculo import ResorteElastico
+
         self._gdl_map = {}
+        self._gdl_resorte_map = {}
         gdl_restringidos: Set[int] = set()
 
         # Ordenar nudos por id para numeración determinista
@@ -74,10 +83,22 @@ class NumeradorGDL:
 
             # Identificar GDL restringidos por el vínculo
             if nudo.vinculo is not None:
-                for nombre_gdl in nudo.vinculo.gdl_restringidos():
-                    offset = _NOMBRE_A_OFFSET.get(nombre_gdl)
-                    if offset is not None:
-                        gdl_restringidos.add(3 * i + offset)
+                if isinstance(nudo.vinculo, ResorteElastico):
+                    # Resorte: NO es restricción rígida.  Registrar rigideces
+                    # en _gdl_resorte_map para añadir a la diagonal de K.
+                    offset_k_pairs = [
+                        (0, nudo.vinculo.kx),
+                        (1, nudo.vinculo.ky),
+                        (2, nudo.vinculo.ktheta),
+                    ]
+                    for offset, k_val in offset_k_pairs:
+                        if k_val > 0.0:
+                            self._gdl_resorte_map[3 * i + offset] = k_val
+                else:
+                    for nombre_gdl in nudo.vinculo.gdl_restringidos():
+                        offset = _NOMBRE_A_OFFSET.get(nombre_gdl)
+                        if offset is not None:
+                            gdl_restringidos.add(3 * i + offset)
 
         # Separar libres y restringidos
         n_total = 3 * len(nudos_ordenados)
@@ -108,6 +129,13 @@ class NumeradorGDL:
         if not self._calculado:
             self.numerar()
         return self._indices_restringidos
+
+    @property
+    def gdl_resorte_map(self) -> Dict[int, float]:
+        """Mapa {gdl_global: k_value} para GDL con resorte elástico."""
+        if not self._calculado:
+            self.numerar()
+        return self._gdl_resorte_map
 
     @property
     def n_total(self) -> int:

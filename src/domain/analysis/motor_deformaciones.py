@@ -262,6 +262,10 @@ class MotorMetodoDeformaciones:
                 for c_loc, c_glob in enumerate(indices):
                     K[r_glob, c_glob] += K_elem[r_loc, c_loc]
 
+        # Añadir rigideces de resortes elásticos a la diagonal de K
+        for gdl_idx, k_spring in self._numerador.gdl_resorte_map.items():
+            K[gdl_idx, gdl_idx] += k_spring
+
         self._K_full = K
 
     def _ensamblar_F_global(self) -> None:
@@ -713,65 +717,83 @@ class MotorMetodoDeformaciones:
         """
         Calcula las reacciones en los vínculos.
 
-        Fórmula: R_restringidos = K_cf @ d_free - FEF_restringidos
-        donde K_cf = submatriz K[restringidos, libres]
+        Vínculos rígidos (Empotramiento, ApoyoFijo, Rodillo, Guia):
+            R_restringidos = K_cf @ d_free - FEF_restringidos
+            donde K_cf = submatriz K[restringidos, libres]
+
+        Resortes elásticos (ResorteElastico):
+            R_resorte = -k · d   (la fuerza que el resorte ejerce sobre la
+            estructura, opuesta al desplazamiento del nudo)
 
         Las reacciones se almacenan también en vinculo.Rx, Ry, Mz.
         """
+        from src.domain.entities.vinculo import ResorteElastico
+
         reacciones: Dict[int, Tuple[float, float, float]] = {}
         gdl_map = self._numerador.gdl_map
         libres = self._numerador.indices_libres
         restringidos = self._numerador.indices_restringidos
 
-        if not restringidos:
-            return reacciones
+        # ---- Vínculos rígidos -----------------------------------------------
+        if restringidos:
+            # R = K[restringidos, libres] @ d_free - FEF[restringidos]
+            # (d_full[restringidos] == 0 por BC)
+            d_free = self._d_full[libres]
+            K_cf = self._K_full[np.ix_(restringidos, libres)]
+            FEF_rest = self._FEF_full[restringidos]
+            R_rest = K_cf @ d_free - FEF_rest
 
-        # K_cf = submatriz K_full[restringidos, :]
-        # R_restringidos = K_cf @ d_full - FEF_restringidos
-        # Como d_full[restringidos] = 0: R = K[restringidos, libres] @ d_free - FEF[restringidos]
-        d_free = self._d_full[libres]
-        K_cf = self._K_full[np.ix_(restringidos, libres)]
-        FEF_rest = self._FEF_full[restringidos]
-        R_rest = K_cf @ d_free - FEF_rest
+            offset_map = {"Ux": 0, "Uy": 1, "theta_z": 2, "\u03b8z": 2}
 
-        # Mapear reacciones a nudos
+            for nudo in self.modelo.nudos:
+                if nudo.vinculo is None or isinstance(nudo.vinculo, ResorteElastico):
+                    continue
+
+                gdl = gdl_map.get(nudo.id)
+                if gdl is None:
+                    continue
+
+                Rx = Ry = Mz = 0.0
+
+                for nombre in nudo.vinculo.gdl_restringidos():
+                    offset = offset_map.get(nombre)
+                    if offset is None:
+                        continue
+                    gdl_global = gdl[offset]
+                    if gdl_global in restringidos:
+                        idx_en_rest = restringidos.index(gdl_global)
+                        valor = float(R_rest[idx_en_rest])
+                        if offset == 0:
+                            Rx = valor
+                        elif offset == 1:
+                            Ry = valor
+                        else:
+                            Mz = valor
+
+                reacciones[nudo.id] = (Rx, Ry, Mz)
+                nudo.vinculo.Rx = Rx
+                nudo.vinculo.Ry = Ry
+                nudo.vinculo.Mz = Mz
+
+        # ---- Resortes elásticos ---------------------------------------------
         for nudo in self.modelo.nudos:
-            if nudo.vinculo is None:
+            if not isinstance(nudo.vinculo, ResorteElastico):
                 continue
 
             gdl = gdl_map.get(nudo.id)
             if gdl is None:
                 continue
 
-            Rx = 0.0
-            Ry = 0.0
-            Mz = 0.0
-
-            # GDL restringidos de este nudo y sus reacciones
-            nombres_rest = nudo.vinculo.gdl_restringidos()
-            offset_map = {"Ux": 0, "Uy": 1, "theta_z": 2, "\u03b8z": 2}
-
-            for nombre in nombres_rest:
-                offset = offset_map.get(nombre)
-                if offset is None:
-                    continue
-                gdl_global = gdl[offset]
-                if gdl_global in restringidos:
-                    idx_en_rest = restringidos.index(gdl_global)
-                    valor = float(R_rest[idx_en_rest])
-                    if offset == 0:
-                        Rx = valor
-                    elif offset == 1:
-                        Ry = valor
-                    else:
-                        Mz = valor
+            resorte = nudo.vinculo
+            # Reacción = −k · d  (el resorte empuja opuesto al desplazamiento)
+            Rx = -resorte.kx * float(self._d_full[gdl[0]]) if resorte.kx > 0 else 0.0
+            Ry = -resorte.ky * float(self._d_full[gdl[1]]) if resorte.ky > 0 else 0.0
+            Mz = -resorte.ktheta * float(self._d_full[gdl[2]]) if resorte.ktheta > 0 else 0.0
 
             reacciones[nudo.id] = (Rx, Ry, Mz)
-
-            # Actualizar atributos del vínculo
-            nudo.vinculo.Rx = Rx
-            nudo.vinculo.Ry = Ry
-            nudo.vinculo.Mz = Mz
+            resorte.Rx = Rx
+            resorte.Ry = Ry
+            resorte.Mz = Mz
 
         return reacciones
 

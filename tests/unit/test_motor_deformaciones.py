@@ -38,7 +38,7 @@ from src.domain.entities.carga import (
 from src.domain.entities.material import Material
 from src.domain.entities.nudo import Nudo
 from src.domain.entities.seccion import SeccionRectangular
-from src.domain.entities.vinculo import Empotramiento, ApoyoFijo, Rodillo
+from src.domain.entities.vinculo import Empotramiento, ApoyoFijo, Rodillo, ResorteElastico
 from src.domain.model.modelo_estructural import ModeloEstructural
 
 
@@ -590,3 +590,221 @@ class TestVigaSimpApoyada:
         """Los desplazamientos verticales en los apoyos son cero."""
         for nudo in self.nudos.values():
             assert abs(nudo.Uy) < 1e-8
+
+
+# ===========================================================================
+# TESTS — Resortes elásticos en MD
+# ===========================================================================
+
+class TestResorteElasticoMD:
+    """
+    Viga voladizo con resorte vertical en el extremo libre.
+
+    Geometría:
+        A (empotramiento, x=0) ——— B (resorte ky, x=L)
+
+    Carga: P vertical (hacia abajo) en B → CargaPuntualNudo(Fy=P).
+
+    Solución analítica (submatriz rigidez libre [v_B, theta_B]):
+        K_libre = [[12EI/L³ + ky,  -6EI/L²],
+                   [-6EI/L²,         4EI/L ]]
+        {P, 0} = K_libre · {d_By, theta_B}
+        d_By    = P / (3EI/L³ + ky)
+        R_spring = -ky · d_By          (resorte empuja hacia arriba)
+        theta_B  = 3P / (2L·(3EI/L³ + ky))
+    """
+
+    E = 200e6       # kN/m²
+    L = 6.0         # m
+    P = 50.0        # kN
+    k = 10_000.0    # kN/m  (resorte vertical)
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        from src.domain.entities.seccion import SeccionRectangular
+
+        seccion = SeccionRectangular(nombre="30x50", b=0.30, _h=0.50)
+        acero = Material(nombre="Acero", E=self.E)
+
+        m = ModeloEstructural("VoladizoConResorte")
+        nA = m.agregar_nudo(0.0, 0.0, "A")
+        nB = m.agregar_nudo(self.L, 0.0, "B")
+        m.agregar_barra(nA, nB, acero, seccion)
+        m.asignar_vinculo(nA.id, Empotramiento())
+        m.asignar_vinculo(nB.id, ResorteElastico(ky=self.k))
+        m.agregar_carga(CargaPuntualNudo(nudo=nB, Fx=0.0, Fy=self.P, Mz=0.0))
+
+        self.modelo = m
+        self.nA = nA
+        self.nB = nB
+        self.EI = self.E * seccion.Iz
+        self.resultado = analizar_estructura_deformaciones(m)
+
+    # --- propiedades del resultado ------------------------------------------
+
+    def test_exitoso(self):
+        assert self.resultado.exitoso
+
+    def test_b_en_reacciones(self):
+        """El nudo B (resorte) debe aparecer en reacciones_finales."""
+        assert self.nB.id in self.resultado.reacciones_finales
+
+    # --- desplazamiento en B ------------------------------------------------
+
+    def test_desplazamiento_vertical_B(self):
+        """d_By = P / (3EI/L³ + k)."""
+        d_esperado = self.P / (3 * self.EI / self.L**3 + self.k)
+        assert self.nB.Uy == pytest.approx(d_esperado, rel=1e-4)
+
+    def test_desplazamiento_A_nulo(self):
+        """El empotramiento en A no desplaza."""
+        assert abs(self.nA.Ux) < 1e-10
+        assert abs(self.nA.Uy) < 1e-10
+        assert abs(self.nA.theta_z) < 1e-10
+
+    # --- rotación en B -------------------------------------------------------
+
+    def test_rotacion_B(self):
+        """theta_B = 3P / (2L · (3EI/L³ + k))."""
+        theta_esperado = 3 * self.P / (2 * self.L * (3 * self.EI / self.L**3 + self.k))
+        assert self.nB.theta_z == pytest.approx(theta_esperado, rel=1e-4)
+
+    # --- reacción del resorte -----------------------------------------------
+
+    def test_reaccion_resorte(self):
+        """R_spring = -k · d_By (opuesta al desplazamiento, hacia arriba)."""
+        d_By = self.nB.Uy
+        Ry_esperado = -self.k * d_By
+        _, Ry_B, _ = self.resultado.reacciones_finales[self.nB.id]
+        assert Ry_B == pytest.approx(Ry_esperado, rel=1e-4)
+
+    def test_reaccion_resorte_negativa(self):
+        """El resorte empuja hacia arriba (Ry < 0 en TERNA Y+ abajo)."""
+        _, Ry_B, _ = self.resultado.reacciones_finales[self.nB.id]
+        assert Ry_B < 0.0
+
+    # --- equilibrio global --------------------------------------------------
+
+    def test_equilibrio_vertical(self):
+        """ΣFy = P + R_spring + R_empotramiento = 0."""
+        _, Ry_A, _ = self.resultado.reacciones_finales[self.nA.id]
+        _, Ry_B, _ = self.resultado.reacciones_finales[self.nB.id]
+        assert abs(self.P + Ry_A + Ry_B) < 1e-4
+
+    # --- límites extremos ---------------------------------------------------
+
+    def test_limite_resorte_infinito_voladizo_rigido(self):
+        """Para k → ∞ el resorte actúa como rodillo; d_By → 0."""
+        from src.domain.entities.seccion import SeccionRectangular
+
+        seccion = SeccionRectangular(nombre="30x50", b=0.30, _h=0.50)
+        acero = Material(nombre="Acero", E=self.E)
+        k_rigido = 1e12  # Prácticamente infinito
+
+        m = ModeloEstructural("VoladizoResorteRigido")
+        nA = m.agregar_nudo(0.0, 0.0, "A")
+        nB = m.agregar_nudo(self.L, 0.0, "B")
+        m.agregar_barra(nA, nB, acero, seccion)
+        m.asignar_vinculo(nA.id, Empotramiento())
+        m.asignar_vinculo(nB.id, ResorteElastico(ky=k_rigido))
+        m.agregar_carga(CargaPuntualNudo(nudo=nB, Fx=0.0, Fy=self.P, Mz=0.0))
+
+        res = analizar_estructura_deformaciones(m)
+        assert res.exitoso
+        assert abs(nB.Uy) < 1e-4  # desplazamiento casi nulo
+
+    def test_limite_sin_resorte_es_voladizo(self):
+        """Para k → 0 (sin resorte) d_By = PL³/(3EI) (voladizo puro)."""
+        from src.domain.entities.seccion import SeccionRectangular
+
+        seccion = SeccionRectangular(nombre="30x50", b=0.30, _h=0.50)
+        acero = Material(nombre="Acero", E=self.E)
+        EI = self.E * seccion.Iz
+
+        m = ModeloEstructural("VoladizoPuro")
+        nA = m.agregar_nudo(0.0, 0.0, "A")
+        nB = m.agregar_nudo(self.L, 0.0, "B")
+        m.agregar_barra(nA, nB, acero, seccion)
+        m.asignar_vinculo(nA.id, Empotramiento())
+        # Sin vínculo en B: extremo libre
+        m.agregar_carga(CargaPuntualNudo(nudo=nB, Fx=0.0, Fy=self.P, Mz=0.0))
+
+        res = analizar_estructura_deformaciones(m)
+        assert res.exitoso
+        d_voladizo = self.P * self.L**3 / (3 * EI)
+        assert nB.Uy == pytest.approx(d_voladizo, rel=1e-3)
+
+
+class TestResorteElasticoNumeradorGDL:
+    """Verifica que NumeradorGDL trate los resortes correctamente."""
+
+    def test_resorte_no_en_restringidos(self):
+        """Un GDL con resorte NO debe estar en indices_restringidos."""
+        from src.domain.entities.seccion import SeccionRectangular
+
+        acero = Material(nombre="Acero", E=200e6)
+        seccion = SeccionRectangular(nombre="30x50", b=0.30, _h=0.50)
+
+        m = ModeloEstructural("Test")
+        nA = m.agregar_nudo(0.0, 0.0, "A")
+        nB = m.agregar_nudo(6.0, 0.0, "B")
+        m.agregar_barra(nA, nB, acero, seccion)
+        m.asignar_vinculo(nA.id, Empotramiento())
+        m.asignar_vinculo(nB.id, ResorteElastico(ky=1000.0))
+
+        num = NumeradorGDL(m)
+        num.numerar()
+
+        gdl_B = num.gdl_map[nB.id]
+        gdl_Uy_B = gdl_B[1]  # offset 1 = Uy
+
+        assert gdl_Uy_B not in num.indices_restringidos
+
+    def test_resorte_en_gdl_resorte_map(self):
+        """El GDL con resorte debe estar en gdl_resorte_map con k correcto."""
+        from src.domain.entities.seccion import SeccionRectangular
+
+        k = 5000.0
+        acero = Material(nombre="Acero", E=200e6)
+        seccion = SeccionRectangular(nombre="30x50", b=0.30, _h=0.50)
+
+        m = ModeloEstructural("Test")
+        nA = m.agregar_nudo(0.0, 0.0, "A")
+        nB = m.agregar_nudo(6.0, 0.0, "B")
+        m.agregar_barra(nA, nB, acero, seccion)
+        m.asignar_vinculo(nA.id, Empotramiento())
+        m.asignar_vinculo(nB.id, ResorteElastico(ky=k))
+
+        num = NumeradorGDL(m)
+        num.numerar()
+
+        gdl_B = num.gdl_map[nB.id]
+        gdl_Uy_B = gdl_B[1]
+
+        assert gdl_Uy_B in num.gdl_resorte_map
+        assert num.gdl_resorte_map[gdl_Uy_B] == pytest.approx(k)
+
+    def test_resorte_rotacional(self):
+        """ResorteElastico con ktheta registra GDL de rotacion."""
+        from src.domain.entities.seccion import SeccionRectangular
+
+        ktheta = 8000.0
+        acero = Material(nombre="Acero", E=200e6)
+        seccion = SeccionRectangular(nombre="30x50", b=0.30, _h=0.50)
+
+        m = ModeloEstructural("Test")
+        nA = m.agregar_nudo(0.0, 0.0, "A")
+        nB = m.agregar_nudo(6.0, 0.0, "B")
+        m.agregar_barra(nA, nB, acero, seccion)
+        m.asignar_vinculo(nA.id, Empotramiento())
+        m.asignar_vinculo(nB.id, ResorteElastico(ktheta=ktheta))
+
+        num = NumeradorGDL(m)
+        num.numerar()
+
+        gdl_B = num.gdl_map[nB.id]
+        gdl_theta_B = gdl_B[2]
+
+        assert gdl_theta_B not in num.indices_restringidos
+        assert gdl_theta_B in num.gdl_resorte_map
+        assert num.gdl_resorte_map[gdl_theta_B] == pytest.approx(ktheta)
