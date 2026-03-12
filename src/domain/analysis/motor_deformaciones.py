@@ -149,6 +149,9 @@ class MotorMetodoDeformaciones:
         self._k_local_cache: Dict[int, NDArray[np.float64]] = {}
         self._fef_local_cache: Dict[int, NDArray[np.float64]] = {}
 
+        # Mapa {gdl_global: delta} para condiciones de contorno no homogéneas
+        self._gdl_impuesto_map: Dict[int, float] = {}
+
     # =========================================================================
     # MÉTODO PRINCIPAL
     # =========================================================================
@@ -169,6 +172,7 @@ class MotorMetodoDeformaciones:
             self._sincronizar_cargas_a_barras()
             self._ensamblar_K_global()
             self._ensamblar_F_global()
+            self._extraer_movimientos_impuestos()
             self._resolver_sistema()
             self._recuperar_desplazamientos()
             diagramas = self._calcular_esfuerzos_barras()
@@ -230,6 +234,52 @@ class MotorMetodoDeformaciones:
             if isinstance(carga, (CargaDistribuida, CargaPuntualBarra)):
                 if carga.barra is not None and carga.barra.id in barra_map:
                     barra_map[carga.barra.id].cargas.append(carga)
+
+    def _extraer_movimientos_impuestos(self) -> None:
+        """
+        Construye ``_gdl_impuesto_map`` desde los ``MovimientoImpuesto`` del modelo.
+
+        Un MovimientoImpuesto impone un desplazamiento/rotación prescrito en un
+        GDL que ya está restringido por el vínculo del nudo.  Solo se procesan
+        GDL que estén en ``indices_restringidos``; los que no estén restringidos
+        por ningún vínculo generan una advertencia y se ignoran.
+
+        Los valores impuestos son condiciones de contorno no homogéneas:
+            d[gdl] = delta_prescrito  (en lugar de 0)
+        """
+        from src.domain.entities.carga import MovimientoImpuesto
+
+        self._gdl_impuesto_map = {}
+        gdl_map = self._numerador.gdl_map
+        restringidos_set = set(self._numerador.indices_restringidos)
+
+        for carga in self.modelo.cargas:
+            if not isinstance(carga, MovimientoImpuesto):
+                continue
+            if carga.nudo is None:
+                continue
+
+            gdl = gdl_map.get(carga.nudo.id)
+            if gdl is None:
+                continue
+
+            # (offset, valor) para cada componente del movimiento
+            componentes = [
+                (0, carga.delta_x),
+                (1, carga.delta_y),
+                (2, carga.delta_theta),
+            ]
+            for offset, delta_val in componentes:
+                if abs(delta_val) < 1e-15:
+                    continue
+                gdl_global = gdl[offset]
+                if gdl_global not in restringidos_set:
+                    self._advertencias.append(
+                        f"MovimientoImpuesto en nudo {carga.nudo.id} GDL offset={offset}: "
+                        "el GDL no está restringido por ningún vínculo — se ignora."
+                    )
+                    continue
+                self._gdl_impuesto_map[gdl_global] = delta_val
 
     def _ensamblar_K_global(self) -> None:
         """
@@ -316,19 +366,30 @@ class MotorMetodoDeformaciones:
         """
         Aplica condiciones de frontera y resuelve [K_mod]{d} = {F_mod}.
 
-        Método: poner 1 en diagonal para GDL restringidos (desplazamiento = 0).
-        Luego resuelve con numpy.linalg.solve.
+        Para GDL con desplazamiento cero (BC homogénea):
+            K_mod[i,i]=1, K_mod[i,j]=0, F_mod[i]=0
+
+        Para GDL con movimiento impuesto δ ≠ 0 (BC no homogénea):
+            Primero: F_mod -= K_full[:,i] · δ  (transfiere el efecto a los
+                GDL libres ANTES de anular la columna)
+            Luego: K_mod[i,i]=1, K_mod[i,j]=0, F_mod[i]=δ
         """
         n = self._numerador.n_total
         K_mod = self._K_full.copy()
         F_mod = self._F_full.copy()
 
-        # Aplicar BCs: para cada GDL restringido → K[i,i]=1, K[i,j]=0, F[i]=0
+        # Transferir contribución de movimientos impuestos a los GDL libres
+        # (debe hacerse ANTES de anular las columnas correspondientes)
+        for gdl, delta in self._gdl_impuesto_map.items():
+            F_mod -= self._K_full[:, gdl] * delta
+
+        # Aplicar BCs: para cada GDL restringido → K[i,i]=1, K[i,j]=0
         for gdl in self._numerador.indices_restringidos:
             K_mod[gdl, :] = 0.0
             K_mod[:, gdl] = 0.0
             K_mod[gdl, gdl] = 1.0
-            F_mod[gdl] = 0.0
+            # Movimiento impuesto o cero (BC homogénea por defecto)
+            F_mod[gdl] = self._gdl_impuesto_map.get(gdl, 0.0)
 
         # Verificar condicionamiento
         if n > 0:
@@ -361,9 +422,9 @@ class MotorMetodoDeformaciones:
                 f"No se pudo resolver el sistema de ecuaciones: {exc}"
             ) from exc
 
-        # Asegurar que GDL restringidos son exactamente 0
+        # Asegurar valores exactos en GDL restringidos
         for gdl in self._numerador.indices_restringidos:
-            d[gdl] = 0.0
+            d[gdl] = self._gdl_impuesto_map.get(gdl, 0.0)
 
         self._d_full = d
 
@@ -736,12 +797,11 @@ class MotorMetodoDeformaciones:
 
         # ---- Vínculos rígidos -----------------------------------------------
         if restringidos:
-            # R = K[restringidos, libres] @ d_free - FEF[restringidos]
-            # (d_full[restringidos] == 0 por BC)
-            d_free = self._d_full[libres]
-            K_cf = self._K_full[np.ix_(restringidos, libres)]
+            # Fórmula general: R = K_full[r,:] @ d_full - FEF[r]
+            # Válida tanto para BCs homogéneas (d_r=0) como no homogéneas
+            # (d_r=delta_impuesto), ya que usa el vector d_full completo.
             FEF_rest = self._FEF_full[restringidos]
-            R_rest = K_cf @ d_free - FEF_rest
+            R_rest = self._K_full[restringidos, :] @ self._d_full - FEF_rest
 
             offset_map = {"Ux": 0, "Uy": 1, "theta_z": 2, "\u03b8z": 2}
 

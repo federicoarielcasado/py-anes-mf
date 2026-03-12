@@ -34,6 +34,7 @@ from src.domain.entities.carga import (
     CargaDistribuida,
     CargaPuntualBarra,
     CargaPuntualNudo,
+    MovimientoImpuesto,
 )
 from src.domain.entities.material import Material
 from src.domain.entities.nudo import Nudo
@@ -808,3 +809,249 @@ class TestResorteElasticoNumeradorGDL:
         assert gdl_theta_B not in num.indices_restringidos
         assert gdl_theta_B in num.gdl_resorte_map
         assert num.gdl_resorte_map[gdl_theta_B] == pytest.approx(ktheta)
+
+
+# ===========================================================================
+# TESTS — Movimientos Impuestos (condiciones de contorno no homogéneas)
+# ===========================================================================
+
+class TestMovimientoImpuestoVertical:
+    """
+    Viga biempotrada sin cargas externas con asentamiento vertical en B.
+
+    Geometría:
+        A (empotramiento, x=0) ——— B (empotramiento, x=L)
+
+    Imposición: Uy_B = δ  (δ > 0 → hacia abajo, positivo en TERNA Y+↓)
+
+    Solución analítica (stiffness method, barra horizontal k_local=k_global):
+        d = [0, 0, 0, 0, δ, 0]
+        M(0)  = k[2,4]·δ  = -6EI/L² · δ    (hogging en A)
+        M(L)  = +6EI/L²·δ                   (sagging en B, por equilibrio)
+        V_i   = -k[1,4]·δ = +12EI/L³·δ
+        Ry_A  = K_full[1,:] @ d = -12EI/L³ · δ  (subida/upward = negativo Y+)
+        Ry_B  = K_full[4,:] @ d = +12EI/L³ · δ  (bajada/downward = positivo)
+    """
+
+    E = 200e6      # kN/m²
+    L = 6.0        # m
+    delta = 0.010  # m  (10 mm downward)
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        from src.domain.entities.seccion import SeccionRectangular
+
+        seccion = SeccionRectangular(nombre="30x50", b=0.30, _h=0.50)
+        acero = Material(nombre="Acero", E=self.E)
+        self.EI = self.E * seccion.Iz  # 200e6 * 0.003125 = 625000 kN·m²
+
+        m = ModeloEstructural("BiempotradaAsentamiento")
+        self.nA = m.agregar_nudo(0.0, 0.0, "A")
+        self.nB = m.agregar_nudo(self.L, 0.0, "B")
+        barra = m.agregar_barra(self.nA, self.nB, acero, seccion)
+        m.asignar_vinculo(self.nA.id, Empotramiento())
+        m.asignar_vinculo(self.nB.id, Empotramiento())
+
+        # Imponer desplazamiento vertical en B
+        m.agregar_carga(MovimientoImpuesto(nudo=self.nB, delta_y=self.delta))
+
+        self.modelo = m
+        self.resultado = analizar_estructura_deformaciones(m)
+        self.diag = self.resultado.diagramas_finales[barra.id]
+        self.reacciones = self.resultado.reacciones_finales
+
+    def test_exitoso(self):
+        assert self.resultado.exitoso
+
+    # --- desplazamientos impuestos ------------------------------------------
+
+    def test_desplazamiento_impuesto_exacto(self):
+        """nB.Uy debe ser exactamente δ (BC no homogénea)."""
+        assert self.nB.Uy == pytest.approx(self.delta, abs=1e-10)
+
+    def test_empotramiento_A_sin_desplazamiento(self):
+        """El empotramiento en A mantiene todos sus GDL en cero."""
+        assert abs(self.nA.Ux) < 1e-10
+        assert abs(self.nA.Uy) < 1e-10
+        assert abs(self.nA.theta_z) < 1e-10
+
+    def test_extremo_B_sin_rotacion(self):
+        """El empotramiento en B impide rotación (sólo Uy está impuesto)."""
+        assert abs(self.nB.theta_z) < 1e-9
+
+    # --- momentos analíticos ------------------------------------------------
+
+    def test_momento_extremo_A(self):
+        """M(0) = -6EI/L²·δ (hogging en A)."""
+        M_esperado = -6 * self.EI / self.L**2 * self.delta
+        assert self.diag.M(0.0) == pytest.approx(M_esperado, rel=1e-4)
+
+    def test_momento_extremo_B(self):
+        """M(L) = +6EI/L²·δ (sagging en B, signo opuesto a A)."""
+        M_esperado = +6 * self.EI / self.L**2 * self.delta
+        assert self.diag.M(self.L) == pytest.approx(M_esperado, rel=1e-4)
+
+    def test_momentos_iguales_opuestos(self):
+        """|M(0)| == |M(L)| (antisimetría por ausencia de carga)."""
+        assert abs(self.diag.M(0.0)) == pytest.approx(abs(self.diag.M(self.L)), rel=1e-6)
+
+    # --- reacciones y equilibrio -------------------------------------------
+
+    def test_reacciones_verticales_opuestas(self):
+        """Ry_A y Ry_B deben ser iguales en magnitud y opuestas en signo."""
+        _, Ry_A, _ = self.reacciones[self.nA.id]
+        _, Ry_B, _ = self.reacciones[self.nB.id]
+        assert abs(Ry_A + Ry_B) < 1e-6  # sin carga externa → ΣFy = 0
+
+    def test_equilibrio_vertical(self):
+        """Sin cargas externas → ΣFy = 0 (solo reacciones)."""
+        total_Ry = sum(r[1] for r in self.reacciones.values())
+        assert abs(total_Ry) < 1e-6
+
+    def test_reaccion_A_analitica(self):
+        """Ry_A = -12EI/L³·δ (upward = negativo en TERNA Y+↓)."""
+        Ry_esperado = -12 * self.EI / self.L**3 * self.delta
+        _, Ry_A, _ = self.reacciones[self.nA.id]
+        assert Ry_A == pytest.approx(Ry_esperado, rel=1e-4)
+
+    def test_reaccion_B_analitica(self):
+        """Ry_B = +12EI/L³·δ (downward = positivo en TERNA Y+↓)."""
+        Ry_esperado = +12 * self.EI / self.L**3 * self.delta
+        _, Ry_B, _ = self.reacciones[self.nB.id]
+        assert Ry_B == pytest.approx(Ry_esperado, rel=1e-4)
+
+
+class TestMovimientoImpuestoRotacion:
+    """
+    Viga biempotrada con rotación prescrita en B. Sin cargas externas.
+
+    Solución analítica (slope-deflection):
+        M_A = 2EI/L · theta_0   (extremo A, momento de near-end: 2EI/L)
+        M_B = 4EI/L · theta_0   (extremo B donde se impone la rotación)
+    Nota: en TERNA M(0) = k[2,5]*theta_0 = 2EI/L * theta_0
+          M(L) calculado por equilibrio desde M_i y V_i.
+    """
+
+    E = 200e6
+    L = 6.0
+    theta_0 = 0.005  # rad
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        from src.domain.entities.seccion import SeccionRectangular
+
+        seccion = SeccionRectangular(nombre="30x50", b=0.30, _h=0.50)
+        acero = Material(nombre="Acero", E=self.E)
+        self.EI = self.E * seccion.Iz
+
+        m = ModeloEstructural("BiempotradaRotacion")
+        self.nA = m.agregar_nudo(0.0, 0.0, "A")
+        self.nB = m.agregar_nudo(self.L, 0.0, "B")
+        barra = m.agregar_barra(self.nA, self.nB, acero, seccion)
+        m.asignar_vinculo(self.nA.id, Empotramiento())
+        m.asignar_vinculo(self.nB.id, Empotramiento())
+        m.agregar_carga(MovimientoImpuesto(nudo=self.nB, delta_theta=self.theta_0))
+
+        self.resultado = analizar_estructura_deformaciones(m)
+        self.diag = self.resultado.diagramas_finales[barra.id]
+        self.reacciones = self.resultado.reacciones_finales
+        self.nA = self.nA
+        self.nB = self.nB
+
+    def test_exitoso(self):
+        assert self.resultado.exitoso
+
+    def test_rotacion_impuesta_exacta(self):
+        """theta_B debe ser exactamente theta_0."""
+        assert self.nB.theta_z == pytest.approx(self.theta_0, abs=1e-12)
+
+    def test_momento_en_A(self):
+        """M(0) = 2EI/L · theta_0 (near-end)."""
+        M_esperado = 2 * self.EI / self.L * self.theta_0
+        assert self.diag.M(0.0) == pytest.approx(M_esperado, rel=1e-4)
+
+    def test_momento_en_B(self):
+        """M(L) = -4EI/L · theta_0 (far-end, signo inverso por equilibrio)."""
+        M_esperado = -4 * self.EI / self.L * self.theta_0
+        assert self.diag.M(self.L) == pytest.approx(M_esperado, rel=1e-4)
+
+    def test_equilibrio_vertical(self):
+        """Sin cargas verticales, ΣFy = 0."""
+        total_Ry = sum(r[1] for r in self.reacciones.values())
+        assert abs(total_Ry) < 1e-6
+
+
+class TestMovimientoImpuestoContinua:
+    """
+    Viga continua de 2 vanos con asentamiento en el apoyo intermedio.
+
+    Geometría:
+        A (ApoyoFijo) ——L—— B (Rodillo + MI) ——L—— C (Rodillo)
+
+    Cargas: ninguna (sólo asentamiento en B).
+    Verificaciones:
+        - nB.Uy == delta_B (BC impuesta exacta)
+        - ΣFy (reacciones) = 0 (sin carga externa)
+        - M en A y C son cero (apoyos simples)
+    """
+
+    E = 200e6
+    L = 5.0   # m por vano
+    delta_B = -0.020  # m  (-20mm = hundimiento, hacia arriba en TERNA Y+↓)
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        from src.domain.entities.seccion import SeccionRectangular
+
+        seccion = SeccionRectangular(nombre="30x50", b=0.30, _h=0.50)
+        acero = Material(nombre="Acero", E=self.E)
+        self.EI = self.E * seccion.Iz
+
+        m = ModeloEstructural("VigaContinuaAsentamiento")
+        nA = m.agregar_nudo(0.0, 0.0, "A")
+        nB = m.agregar_nudo(self.L, 0.0, "B")
+        nC = m.agregar_nudo(2 * self.L, 0.0, "C")
+        b1 = m.agregar_barra(nA, nB, acero, seccion)
+        b2 = m.agregar_barra(nB, nC, acero, seccion)
+
+        m.asignar_vinculo(nA.id, ApoyoFijo())
+        m.asignar_vinculo(nB.id, Rodillo())
+        m.asignar_vinculo(nC.id, Rodillo())
+
+        m.agregar_carga(MovimientoImpuesto(nudo=nB, delta_y=self.delta_B))
+
+        self.nA, self.nB, self.nC = nA, nB, nC
+        self.b1, self.b2 = b1, b2
+        self.modelo = m
+        self.resultado = analizar_estructura_deformaciones(m)
+        self.reacciones = self.resultado.reacciones_finales
+
+    def test_exitoso(self):
+        assert self.resultado.exitoso
+
+    def test_desplazamiento_impuesto_exacto(self):
+        """nB.Uy == delta_B (BC no homogénea)."""
+        assert self.nB.Uy == pytest.approx(self.delta_B, abs=1e-10)
+
+    def test_apoyos_A_C_sin_desplazamiento_vertical(self):
+        """Uy en apoyos rígidos A y C deben ser cero."""
+        assert abs(self.nA.Uy) < 1e-10
+        assert abs(self.nC.Uy) < 1e-10
+
+    def test_equilibrio_vertical(self):
+        """Sin carga externa → ΣFy_reacciones = 0."""
+        total_Ry = sum(r[1] for r in self.reacciones.values())
+        assert abs(total_Ry) < 1e-6
+
+    def test_momentos_extremos_cero(self):
+        """En apoyos simples A y C los momentos son nulos."""
+        diag1 = self.resultado.diagramas_finales[self.b1.id]
+        diag2 = self.resultado.diagramas_finales[self.b2.id]
+        assert abs(diag1.M(0.0)) < 1e-3          # M en A
+        assert abs(diag2.M(self.L)) < 1e-3        # M en C
+
+    def test_sin_carga_externa_reacciones_distintas(self):
+        """Con asentamiento diferencial, las reacciones no son iguales entre sí."""
+        Ry_vals = [r[1] for r in self.reacciones.values()]
+        # Al menos una reacción debe ser no nula (hay redistribución)
+        assert any(abs(r) > 1e-3 for r in Ry_vals)

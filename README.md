@@ -3,7 +3,7 @@
 **Sistema de Análisis Estructural de Pórticos Planos 2D**
 
 [![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/Tests-254%2F254%20passing-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-276%2F276%20passing-brightgreen.svg)](tests/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 > Anteriormente conocido como **PyANES-MF**. Renombrado a PyANES al incorporar el
@@ -412,7 +412,7 @@ PyANES cuenta con **241 tests automatizados** que garantizan la corrección de l
 pytest -v --tb=no -q
 
 # Por módulo
-pytest tests/unit/test_motor_deformaciones.py -v   # 56 tests MD (incl. resortes)
+pytest tests/unit/test_motor_deformaciones.py -v   # 78 tests MD (resortes + MI)
 pytest tests/unit/test_solver_adaptativo.py -v     # 22 tests Solver Adaptativo
 pytest tests/unit/test_carga_termica.py -v         # 20 tests cargas térmicas
 pytest tests/unit/test_resorte_elastico.py -v      # 30 tests resortes
@@ -533,7 +533,7 @@ resultado.Xi(1)   # Valor del primer redundante
 
 **Motor de Deformaciones (MD) — extensiones:**
 - ✅ Soporte de resortes elásticos en MD: `K[i,i] += k`, reacciones `R = −k·δ`, 13 tests nuevos
-- [ ] Soporte de movimientos impuestos en MD: condiciones de contorno no homogéneas
+- ✅ Soporte de movimientos impuestos en MD: BC no homogéneas, `F_eff -= K[:,p]·δ`, 22 tests nuevos
 - [ ] Soporte de cargas térmicas en MD: FEF térmicas en `fuerzas_empotramiento.py` + sincronización
 
 ### v2.0.0 (11 de Marzo de 2026)
