@@ -220,8 +220,13 @@ class MotorMetodoDeformaciones:
 
         modelo.agregar_carga() solo guarda en modelo._cargas; los cálculos de
         FEF y diagramas leen barra.cargas. Este paso hace la sincronización.
+
+        Tipos procesados:
+            - CargaDistribuida
+            - CargaPuntualBarra
+            - CargaTermica (contribuye al FEF vía _procesar_termica)
         """
-        from src.domain.entities.carga import CargaDistribuida, CargaPuntualBarra
+        from src.domain.entities.carga import CargaDistribuida, CargaPuntualBarra, CargaTermica
 
         barra_map = {b.id: b for b in self.modelo.barras}
 
@@ -231,7 +236,7 @@ class MotorMetodoDeformaciones:
 
         # Re-popular desde modelo.cargas
         for carga in self.modelo.cargas:
-            if isinstance(carga, (CargaDistribuida, CargaPuntualBarra)):
+            if isinstance(carga, (CargaDistribuida, CargaPuntualBarra, CargaTermica)):
                 if carga.barra is not None and carga.barra.id in barra_map:
                     barra_map[carga.barra.id].cargas.append(carga)
 

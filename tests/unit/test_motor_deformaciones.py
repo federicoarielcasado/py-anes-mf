@@ -35,6 +35,7 @@ from src.domain.entities.carga import (
     CargaPuntualBarra,
     CargaPuntualNudo,
     MovimientoImpuesto,
+    CargaTermica,
 )
 from src.domain.entities.material import Material
 from src.domain.entities.nudo import Nudo
@@ -1055,3 +1056,322 @@ class TestMovimientoImpuestoContinua:
         Ry_vals = [r[1] for r in self.reacciones.values()]
         # Al menos una reacción debe ser no nula (hay redistribución)
         assert any(abs(r) > 1e-3 for r in Ry_vals)
+
+
+# ===========================================================================
+# CARGAS TERMICAS EN MD
+# ===========================================================================
+
+class TestCargaTermicaAxialBiempotrada:
+    """
+    Barra biempotrada horizontal con variacion uniforme de temperatura.
+
+    Geometria: A (Emp) ---L--- B (Emp), barra horizontal.
+    Carga: CargaTermica(delta_T_uniforme=DT_u) en la barra.
+
+    Solucion analitica (biempotrada, delta_T uniforme):
+        - Alargamiento libre: delta = alpha*DT_u*L  (impedido por apoyos)
+        - Axil interno:  N(x) = -EA*alpha*DT_u   (compresion si DT>0)
+        - Cortante:      V(x) = 0
+        - Momento:       M(x) = 0
+        - Desplazamientos: Ux = Uy = theta = 0 en ambos nudos
+    """
+
+    E = 200e6       # kN/m2
+    b = 0.30        # m  (ancho seccion rectangular)
+    _h = 0.50       # m  (alto)
+    L = 6.0         # m
+    alpha = 1.2e-5  # 1/degC (acero)
+    DT_u = 30.0     # degC (calentamiento uniforme)
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        from src.domain.entities.seccion import SeccionRectangular
+
+        seccion = SeccionRectangular(nombre="30x50", b=self.b, _h=self._h)
+        acero = Material(nombre="Acero", E=self.E, alpha=self.alpha)
+        self.EA = self.E * seccion.A
+        self.EI = self.E * seccion.Iz
+
+        m = ModeloEstructural("AxialTermica")
+        self.nA = m.agregar_nudo(0.0, 0.0, "A")
+        self.nB = m.agregar_nudo(self.L, 0.0, "B")
+        self.barra = m.agregar_barra(self.nA, self.nB, acero, seccion)
+        m.asignar_vinculo(self.nA.id, Empotramiento())
+        m.asignar_vinculo(self.nB.id, Empotramiento())
+        m.agregar_carga(CargaTermica(barra=self.barra, delta_T_uniforme=self.DT_u))
+
+        self.resultado = analizar_estructura_deformaciones(m)
+        self.diag = self.resultado.diagramas_finales[self.barra.id]
+        self.reacciones = self.resultado.reacciones_finales
+
+    def test_exitoso(self):
+        assert self.resultado.exitoso
+
+    def test_axil_compresion(self):
+        """N(x) = -EA*alpha*DT_u (compresion para calentamiento en biempotrada)."""
+        N_esperado = -self.EA * self.alpha * self.DT_u
+        assert self.diag.N(0.0) == pytest.approx(N_esperado, rel=1e-4)
+        assert self.diag.N(self.L / 2) == pytest.approx(N_esperado, rel=1e-4)
+        assert self.diag.N(self.L) == pytest.approx(N_esperado, rel=1e-4)
+
+    def test_cortante_nulo(self):
+        """Sin carga transversal: V(x) = 0."""
+        assert self.diag.V(0.0) == pytest.approx(0.0, abs=1e-6)
+        assert self.diag.V(self.L) == pytest.approx(0.0, abs=1e-6)
+
+    def test_momento_nulo(self):
+        """Sin gradiente termico ni carga transversal: M(x) = 0."""
+        assert self.diag.M(0.0) == pytest.approx(0.0, abs=1e-6)
+        assert self.diag.M(self.L) == pytest.approx(0.0, abs=1e-6)
+
+    def test_desplazamientos_nulos(self):
+        """Estructura biempotrada: todos los GDL son cero."""
+        assert abs(self.nA.Ux) < 1e-10
+        assert abs(self.nA.Uy) < 1e-10
+        assert abs(self.nB.Ux) < 1e-10
+        assert abs(self.nB.Uy) < 1e-10
+
+    def test_equilibrio_global_Fx(self):
+        """ΣRx = 0 (reacciones axiales son iguales en magnitud y opuestas)."""
+        total_Rx = sum(r[0] for r in self.reacciones.values())
+        assert abs(total_Rx) < 1e-6
+
+    def test_reacciones_axiales_opuestas(self):
+        """R_A_x = -EA*alpha*DT_u (compresion); R_B_x = +EA*alpha*DT_u."""
+        Rx_A, _, _ = self.reacciones[self.nA.id]
+        Rx_B, _, _ = self.reacciones[self.nB.id]
+        N_compresion = self.EA * self.alpha * self.DT_u
+        assert Rx_A == pytest.approx(-N_compresion, rel=1e-4)
+        assert Rx_B == pytest.approx(+N_compresion, rel=1e-4)
+
+    def test_enfriamiento_traccion(self):
+        """DT_u < 0 (enfriamiento) genera traccion (N > 0) en biempotrada."""
+        from src.domain.entities.seccion import SeccionRectangular
+        seccion = SeccionRectangular(nombre="30x50", b=self.b, _h=self._h)
+        acero = Material(nombre="Acero", E=self.E, alpha=self.alpha)
+        m = ModeloEstructural("Enfriamiento")
+        nA = m.agregar_nudo(0.0, 0.0, "A")
+        nB = m.agregar_nudo(self.L, 0.0, "B")
+        barra = m.agregar_barra(nA, nB, acero, seccion)
+        m.asignar_vinculo(nA.id, Empotramiento())
+        m.asignar_vinculo(nB.id, Empotramiento())
+        DT_frio = -20.0
+        m.agregar_carga(CargaTermica(barra=barra, delta_T_uniforme=DT_frio))
+        res = analizar_estructura_deformaciones(m)
+        EA = self.E * seccion.A
+        N_esperado = -EA * self.alpha * DT_frio  # > 0 (traccion)
+        assert res.diagramas_finales[barra.id].N(0.0) == pytest.approx(N_esperado, rel=1e-4)
+
+
+class TestCargaTermicaGradienteBiempotrada:
+    """
+    Viga biempotrada con gradiente termico (fibra superior mas caliente).
+
+    Geometria: A (Emp) ---L--- B (Emp), viga horizontal.
+    Carga: CargaTermica(delta_T_gradiente=DT_g), fibra superior mas caliente.
+
+    Solucion analitica (biempotrada, gradiente uniforme):
+        kappa_T = alpha * DT_g / h  (curvatura libre)
+        M(x) = -EI*kappa_T  (hogging constante; biempotrada no permite rotar)
+        V(x) = 0
+        N(x) = 0
+        Desplazamientos: todos nulos
+    """
+
+    E = 200e6       # kN/m2
+    b = 0.30        # m
+    _h = 0.50       # m
+    L = 6.0         # m
+    alpha = 1.2e-5  # 1/degC
+    DT_g = 20.0     # degC (diferencia fibra sup - inf; sup. mas caliente)
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        from src.domain.entities.seccion import SeccionRectangular
+
+        seccion = SeccionRectangular(nombre="30x50", b=self.b, _h=self._h)
+        acero = Material(nombre="Acero", E=self.E, alpha=self.alpha)
+        self.EI = self.E * seccion.Iz
+
+        m = ModeloEstructural("GradienteTermico")
+        self.nA = m.agregar_nudo(0.0, 0.0, "A")
+        self.nB = m.agregar_nudo(self.L, 0.0, "B")
+        self.barra = m.agregar_barra(self.nA, self.nB, acero, seccion)
+        m.asignar_vinculo(self.nA.id, Empotramiento())
+        m.asignar_vinculo(self.nB.id, Empotramiento())
+        m.agregar_carga(CargaTermica(barra=self.barra, delta_T_gradiente=self.DT_g))
+
+        self.resultado = analizar_estructura_deformaciones(m)
+        self.diag = self.resultado.diagramas_finales[self.barra.id]
+        self.reacciones = self.resultado.reacciones_finales
+        self.kappa_T = self.alpha * self.DT_g / self._h
+
+    def test_exitoso(self):
+        assert self.resultado.exitoso
+
+    def test_momento_hogging_constante(self):
+        """M(x) = -EI*kappa_T (hogging = negativo en TERNA) en toda la barra."""
+        M_esperado = -self.EI * self.kappa_T
+        assert self.diag.M(0.0) == pytest.approx(M_esperado, rel=1e-4)
+        assert self.diag.M(self.L / 2) == pytest.approx(M_esperado, rel=1e-4)
+        assert self.diag.M(self.L) == pytest.approx(M_esperado, rel=1e-4)
+
+    def test_cortante_nulo(self):
+        """Sin carga transversal ni variacion de M: V(x) = 0."""
+        assert self.diag.V(0.0) == pytest.approx(0.0, abs=1e-6)
+        assert self.diag.V(self.L) == pytest.approx(0.0, abs=1e-6)
+
+    def test_axil_nulo(self):
+        """Sin ΔT uniforme: N(x) = 0."""
+        assert self.diag.N(0.0) == pytest.approx(0.0, abs=1e-6)
+        assert self.diag.N(self.L) == pytest.approx(0.0, abs=1e-6)
+
+    def test_equilibrio_momentos_global(self):
+        """ΣM_reacciones = 0 (equilibrio global)."""
+        _, _, Mz_A = self.reacciones[self.nA.id]
+        _, _, Mz_B = self.reacciones[self.nB.id]
+        assert abs(Mz_A + Mz_B) < 1e-6
+
+    def test_reacciones_axiales_nulas(self):
+        """Sin ΔT uniforme: Rx = 0 en ambos apoyos."""
+        Rx_A, _, _ = self.reacciones[self.nA.id]
+        Rx_B, _, _ = self.reacciones[self.nB.id]
+        assert abs(Rx_A) < 1e-6
+        assert abs(Rx_B) < 1e-6
+
+    def test_reacciones_verticales_nulas(self):
+        """Sin carga transversal: Ry = 0 en ambos apoyos."""
+        _, Ry_A, _ = self.reacciones[self.nA.id]
+        _, Ry_B, _ = self.reacciones[self.nB.id]
+        assert abs(Ry_A) < 1e-6
+        assert abs(Ry_B) < 1e-6
+
+
+class TestCargaTermicaCombinada:
+    """
+    Barra biempotrada con ΔT uniforme + gradiente termico simultaneos.
+
+    Los dos efectos son independientes y se superponen linealmente.
+
+    Verificaciones:
+        N(x) = -EA*alpha*DT_u         (solo del termino uniforme)
+        M(x) = -EI*alpha*DT_g/h      (solo del termino gradiente)
+        V(x) = 0
+    """
+
+    E = 200e6
+    b = 0.30
+    _h = 0.50
+    L = 5.0
+    alpha = 1.2e-5
+    DT_u = 25.0   # degC uniforme
+    DT_g = 15.0   # degC gradiente
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        from src.domain.entities.seccion import SeccionRectangular
+
+        seccion = SeccionRectangular(nombre="30x50", b=self.b, _h=self._h)
+        acero = Material(nombre="Acero", E=self.E, alpha=self.alpha)
+        self.EA = self.E * seccion.A
+        self.EI = self.E * seccion.Iz
+        self.kappa_T = self.alpha * self.DT_g / self._h
+
+        m = ModeloEstructural("TermicaCombinada")
+        self.nA = m.agregar_nudo(0.0, 0.0, "A")
+        self.nB = m.agregar_nudo(self.L, 0.0, "B")
+        self.barra = m.agregar_barra(self.nA, self.nB, acero, seccion)
+        m.asignar_vinculo(self.nA.id, Empotramiento())
+        m.asignar_vinculo(self.nB.id, Empotramiento())
+        m.agregar_carga(CargaTermica(
+            barra=self.barra,
+            delta_T_uniforme=self.DT_u,
+            delta_T_gradiente=self.DT_g,
+        ))
+
+        self.resultado = analizar_estructura_deformaciones(m)
+        self.diag = self.resultado.diagramas_finales[self.barra.id]
+        self.reacciones = self.resultado.reacciones_finales
+
+    def test_exitoso(self):
+        assert self.resultado.exitoso
+
+    def test_axil_combinado(self):
+        """N(x) = -EA*alpha*DT_u (contribucion del termino uniforme)."""
+        N_esp = -self.EA * self.alpha * self.DT_u
+        assert self.diag.N(0.0) == pytest.approx(N_esp, rel=1e-4)
+
+    def test_momento_combinado(self):
+        """M(x) = -EI*kappa_T (contribucion del gradiente)."""
+        M_esp = -self.EI * self.kappa_T
+        assert self.diag.M(0.0) == pytest.approx(M_esp, rel=1e-4)
+        assert self.diag.M(self.L) == pytest.approx(M_esp, rel=1e-4)
+
+    def test_cortante_nulo(self):
+        """Sin cargas transversales: V = 0."""
+        assert self.diag.V(0.0) == pytest.approx(0.0, abs=1e-6)
+
+    def test_equilibrio_Fx(self):
+        """ΣRx = 0."""
+        total_Rx = sum(r[0] for r in self.reacciones.values())
+        assert abs(total_Rx) < 1e-6
+
+    def test_equilibrio_Fy(self):
+        """ΣRy = 0."""
+        total_Ry = sum(r[1] for r in self.reacciones.values())
+        assert abs(total_Ry) < 1e-6
+
+
+class TestCargaTermicaIsostatica:
+    """
+    Viga isostática (apoyos articulados en ambos extremos) con gradiente.
+
+    Geometria: A (ApoyoFijo) ---L--- B (Rodillo)
+    Carga: CargaTermica(delta_T_gradiente=DT_g)
+
+    Solucion analitica:
+        - En viga isostática, el gradiente no genera esfuerzos internos
+          (la estructura puede deformarse libremente → M(x) = 0)
+        - La viga se curva con curvatura kappa_T pero sin restriccion → M=0
+        - Las reacciones de momento son nulas (apoyo simple no resiste M)
+    """
+
+    E = 200e6
+    b = 0.30
+    _h = 0.50
+    L = 4.0
+    alpha = 1.2e-5
+    DT_g = 30.0
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        from src.domain.entities.seccion import SeccionRectangular
+
+        seccion = SeccionRectangular(nombre="30x50", b=self.b, _h=self._h)
+        acero = Material(nombre="Acero", E=self.E, alpha=self.alpha)
+
+        m = ModeloEstructural("TermicaIsostatica")
+        self.nA = m.agregar_nudo(0.0, 0.0, "A")
+        self.nB = m.agregar_nudo(self.L, 0.0, "B")
+        self.barra = m.agregar_barra(self.nA, self.nB, acero, seccion)
+        m.asignar_vinculo(self.nA.id, ApoyoFijo())
+        m.asignar_vinculo(self.nB.id, Rodillo())
+        m.agregar_carga(CargaTermica(barra=self.barra, delta_T_gradiente=self.DT_g))
+
+        self.resultado = analizar_estructura_deformaciones(m)
+        self.diag = self.resultado.diagramas_finales[self.barra.id]
+
+    def test_exitoso(self):
+        assert self.resultado.exitoso
+
+    def test_momento_nulo_en_isostática(self):
+        """En viga isostática, gradiente termico no genera momentos internos."""
+        assert self.diag.M(0.0) == pytest.approx(0.0, abs=1e-3)
+        assert self.diag.M(self.L / 2) == pytest.approx(0.0, abs=1e-3)
+        assert self.diag.M(self.L) == pytest.approx(0.0, abs=1e-3)
+
+    def test_cortante_nulo(self):
+        """Sin carga transversal: V = 0."""
+        assert self.diag.V(0.0) == pytest.approx(0.0, abs=1e-3)
+        assert self.diag.V(self.L) == pytest.approx(0.0, abs=1e-3)

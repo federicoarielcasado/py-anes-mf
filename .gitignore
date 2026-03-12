@@ -115,8 +115,9 @@ autosave/
 # Reference materials (PDFs, local resources)
 Informacion adicional/
 
-# Claude Code local settings
+# Claude Code local settings and project instructions
 .claude/
+CLAUDE.md
 
 # OS
 .DS_Store

@@ -191,7 +191,7 @@ class CalculadorFuerzasEmpotramiento:
         Returns:
             Vector FEF [N_i, V_i, M_i, N_j, V_j, M_j] en coordenadas LOCALES [kN, kN, kNm, ...]
         """
-        from src.domain.entities.carga import CargaDistribuida, CargaPuntualBarra
+        from src.domain.entities.carga import CargaDistribuida, CargaPuntualBarra, CargaTermica
 
         fef_total = np.zeros(6, dtype=np.float64)
 
@@ -200,9 +200,76 @@ class CalculadorFuerzasEmpotramiento:
                 fef_total += self._procesar_distribuida(carga, barra)
             elif isinstance(carga, CargaPuntualBarra):
                 fef_total += self._procesar_puntual(carga, barra)
-            # Otros tipos de carga no soportados en Fase 1 → se ignoran
+            elif isinstance(carga, CargaTermica):
+                fef_total += self._procesar_termica(carga, barra)
+            # Otros tipos de carga no soportados → se ignoran
 
         return fef_total
+
+    def _procesar_termica(
+        self, carga: "CargaTermica", barra: "Barra"
+    ) -> NDArray[np.float64]:
+        """
+        Procesa una CargaTermica y retorna su contribución al FEF local.
+
+        Las cargas térmicas en el Método de las Deformaciones generan fuerzas
+        de empotramiento equivalentes (FEF) que se añaden al vector de cargas
+        global.  No modifican la matriz de rigidez.
+
+        Componentes:
+
+        1. Variación uniforme ΔT_u [°C]:
+           El elemento quiere alargarse δ = α·ΔT_u·L.  En biempotrado la
+           reacción axial es N = -EA·α·ΔT_u (compresión para ΔT_u > 0).
+
+           FEF axial (convención de este motor):
+               fef[0] = +EA·α·ΔT_u   (en nudo i, dirección X_local+)
+               fef[3] = -EA·α·ΔT_u   (en nudo j, dirección X_local+)
+
+           De este modo:  N_i = p_elem[0] = k@d[0] - fef[0] = -EA·α·ΔT_u ✓
+
+        2. Gradiente lineal ΔT_g [°C] (ΔT entre fibra superior e inferior):
+           Curvatura libre: κ_T = α·ΔT_g/h.  En biempotrado el momento
+           interno es M = -EI·κ_T (hogging si ΔT_g > 0 con fibra sup. más
+           caliente → tendencia a pandear hacia abajo).
+
+           FEF de momento:
+               fef[2] = +EI·κ_T   (en nudo i, dirección θ+)
+               fef[5] = -EI·κ_T   (en nudo j, dirección θ+)
+
+           De este modo:  M_i = p_elem[2] = k@d[2] - fef[2] = -EI·κ_T ✓
+
+        Args:
+            carga: CargaTermica con delta_T_uniforme y/o delta_T_gradiente
+            barra: Barra a la que pertenece la carga
+
+        Returns:
+            Vector FEF [N_i, V_i, M_i, N_j, V_j, M_j] en LOCAL (6 componentes)
+        """
+        fef = np.zeros(6, dtype=np.float64)
+
+        alpha = barra.material.alpha
+        EA = barra.material.E * barra.seccion.A
+        EI = barra.material.E * barra.seccion.Iz
+
+        # --- Componente axial (variación uniforme de temperatura) ---
+        if abs(carga.delta_T_uniforme) > 1e-12:
+            delta_T_u = carga.delta_T_uniforme
+            fef[0] = +EA * alpha * delta_T_u   # N en nudo i
+            fef[3] = -EA * alpha * delta_T_u   # N en nudo j
+
+        # --- Componente flexional (gradiente térmico entre fibras) ---
+        if abs(carga.delta_T_gradiente) > 1e-12:
+            h = barra.seccion.h
+            if h < 1e-10:
+                # Sección sin altura definida: sin efecto de gradiente
+                pass
+            else:
+                kappa_T = alpha * carga.delta_T_gradiente / h
+                fef[2] = +EI * kappa_T   # M en nudo i
+                fef[5] = -EI * kappa_T   # M en nudo j
+
+        return fef
 
     def _procesar_distribuida(
         self, carga: "CargaDistribuida", barra: "Barra"

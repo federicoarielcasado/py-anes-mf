@@ -1,16 +1,18 @@
 # PyStrAn 🏗️
 
-**Sistema de Análisis Estructural de Pórticos Planos 2D**
+**Python Structural Analysis — Pórticos Planos 2D**
 
 [![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/Tests-276%2F276%20passing-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-300%2F300%20passing-brightgreen.svg)](tests/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
+> Anteriormente conocido como **PyANES-MF** y luego **PyANES**. Renombrado a **PyStrAn**
+> (*Python Structural Analysis*) para reflejar el alcance general del sistema.
 ---
 
 ## 📋 Descripción
 
-PyANES es un software de análisis estructural para **pórticos planos 2D** que implementa dos métodos
+PyStrAn es un software de análisis estructural para **pórticos planos 2D** que implementa dos métodos
 de resolución complementarios y los combina mediante un solver adaptativo con validación cruzada automática:
 
 | Motor | Método | Incógnitas | Cuándo usarlo |
@@ -303,7 +305,7 @@ Retornar solo MD (siempre confiable)
 
 ### Sistema de Coordenadas (TERNA)
 
-**Convención adoptada en PyANES:**
+**Convención adoptada en PyStrAn:**
 
 - **X+ → Derecha**
 - **Y+ → Abajo** ⬇️ (gravedad positiva)
@@ -402,14 +404,14 @@ ModeloEstructural (nudos, barras, cargas, vínculos)
 
 ### Suite de Tests Automatizados
 
-PyANES cuenta con **241 tests automatizados** que garantizan la corrección de los cálculos:
+PyStrAn cuenta con **300 tests automatizados** que garantizan la corrección de los cálculos:
 
 ```bash
 # Ejecutar todos los tests
 pytest -v --tb=no -q
 
 # Por módulo
-pytest tests/unit/test_motor_deformaciones.py -v   # 78 tests MD (resortes + MI)
+pytest tests/unit/test_motor_deformaciones.py -v   # 102 tests MD (resortes + MI + cargas termicas)
 pytest tests/unit/test_solver_adaptativo.py -v     # 22 tests Solver Adaptativo
 pytest tests/unit/test_carga_termica.py -v         # 20 tests cargas térmicas
 pytest tests/unit/test_resorte_elastico.py -v      # 30 tests resortes
@@ -526,12 +528,12 @@ resultado.Xi(1)   # Valor del primer redundante
 
 ## 📝 Changelog
 
-### v2.1.0 (en desarrollo)
+### v2.1.0 (12 de Marzo de 2026)
 
 **Motor de Deformaciones (MD) — extensiones:**
 - ✅ Soporte de resortes elásticos en MD: `K[i,i] += k`, reacciones `R = −k·δ`, 13 tests nuevos
 - ✅ Soporte de movimientos impuestos en MD: BC no homogéneas, `F_eff -= K[:,p]·δ`, 22 tests nuevos
-- [ ] Soporte de cargas térmicas en MD: FEF térmicas en `fuerzas_empotramiento.py` + sincronización
+- ✅ Soporte de cargas térmicas en MD: FEF axiales y de gradiente en `CalculadorFuerzasEmpotramiento`, 24 tests nuevos
 
 ### v2.0.0 (11 de Marzo de 2026)
 
@@ -543,7 +545,7 @@ resultado.Xi(1)   # Valor del primer redundante
 - ✅ Solver Adaptativo con búsqueda iterativa de redundantes (`resolver_con_fallback`)
 - ✅ Validación cruzada automática MF↔MD (`comparar_resultados`)
 - ✅ 65 nuevos tests automatizados (241 total)
-- ✅ Renombrado de PyANES-MF → PyANES
+- ✅ Renombrado de PyANES-MF → PyANES → PyStrAn
 
 ### v1.0.0 (19 de Febrero de 2026)
 
