@@ -627,24 +627,20 @@ class MotorMetodoFuerzas:
                 _N_func=N_final,
             )
 
-        # Superponer reacciones
+        # Superponer reacciones: R_final = R0 + ΣXi·Ri
         #
-        # En el Método de las Fuerzas, la reacción final en cada nudo se calcula:
+        # Regla:
+        #   - Componentes REDUNDANTES: R_final = Xi
+        #     (el redundante ES la reacción; R0=0 porque ese DOF fue liberado y
+        #     los Xi subestructuras tienen ese mismo DOF libre → Ri=0 también)
+        #   - Componentes NO REDUNDANTES: R_final = R0 + ΣXi·Ri
+        #     R0 viene de la fundamental bajo cargas reales; ΣXi·Ri corrige por
+        #     la influencia de las cargas unitarias de cada redundante en ese apoyo.
         #
-        #   - Para componentes REDUNDANTES (ej: Mz en empotramiento liberado):
-        #     La reacción final ES el valor Xi resuelto.
-        #
-        #   - Para componentes NO REDUNDANTES (ej: Ry en apoyo fijo de la fundamental):
-        #     La reacción final es R0 de la estructura fundamental.
-        #     La fundamental fue resuelta bajo las cargas reales, con los vínculos
-        #     no-redundantes activos; su equilibrio ya es el correcto.
-        #
-        # Nota: la verificación de equilibrio global (verificar_equilibrio_global)
-        # usa la fórmula completa R0+ΣXi·Ri internamente para comprobar ΣF=0,
-        # independientemente de lo que se almacene en reacciones_finales.
+        # Esta fórmula garantiza el equilibrio global ΣF=0 automáticamente.
         from src.domain.analysis.redundantes import TipoRedundante
 
-        # Construir mapa {(nudo_id, componente) → valor_Xi}
+        # Construir mapa {(nudo_id, componente) → valor_Xi} para redundantes
         redundante_map: Dict[Tuple[int, str], float] = {}
         for i, red in enumerate(self._redundantes):
             if red.nudo_id is None:
@@ -662,14 +658,32 @@ class MotorMetodoFuerzas:
 
             R0 = self._fundamental.obtener_reaccion(nudo.id)
 
-            # Para componentes redundantes: el valor Xi ES la reacción final.
-            # Para componentes no redundantes: usar R0 (la fundamental ya incorpora
-            # el equilibrio bajo las cargas reales; la superposición cruzada Xi·Ri
-            # no es aplicable porque las reacciones de las subestructuras Xi no
-            # representan contribuciones a GDL distintos del propio redundante).
-            Rx = redundante_map.get((nudo.id, "Rx"), R0[0])
-            Ry = redundante_map.get((nudo.id, "Ry"), R0[1])
-            Mz = redundante_map.get((nudo.id, "Mz"), R0[2])
+            # Rx: redundante → Xi directo; no redundante → R0 + ΣXi·Ri
+            if (nudo.id, "Rx") in redundante_map:
+                Rx = redundante_map[(nudo.id, "Rx")]
+            else:
+                Rx = R0[0] + sum(
+                    float(X[i]) * self._subestructuras_xi[i].obtener_reaccion(nudo.id)[0]
+                    for i in range(len(X))
+                )
+
+            # Ry: redundante → Xi directo; no redundante → R0 + ΣXi·Ri
+            if (nudo.id, "Ry") in redundante_map:
+                Ry = redundante_map[(nudo.id, "Ry")]
+            else:
+                Ry = R0[1] + sum(
+                    float(X[i]) * self._subestructuras_xi[i].obtener_reaccion(nudo.id)[1]
+                    for i in range(len(X))
+                )
+
+            # Mz: redundante → Xi directo; no redundante → R0 + ΣXi·Ri
+            if (nudo.id, "Mz") in redundante_map:
+                Mz = redundante_map[(nudo.id, "Mz")]
+            else:
+                Mz = R0[2] + sum(
+                    float(X[i]) * self._subestructuras_xi[i].obtener_reaccion(nudo.id)[2]
+                    for i in range(len(X))
+                )
 
             reacciones_finales[nudo.id] = (Rx, Ry, Mz)
 

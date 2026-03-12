@@ -26,6 +26,8 @@ de resolución complementarios y los combina mediante un solver adaptativo con v
 
 **Motor de Análisis (MF):**
 - ✅ **Análisis hiperestático completo** mediante Método de las Fuerzas
+- ✅ **Propagación topológica (BFS)** para calcular M̄ᵢ, N̄ᵢ, V̄ᵢ en pórticos planos con nudos internos libres
+- ✅ **Superposición correcta** de reacciones: componentes redundantes = Xᵢ, no redundantes = R⁰ + ΣXᵢ·Rᵢ
 - ✅ **Trabajos virtuales** para cálculo de flexibilidades (fᵢⱼ) y términos independientes (e₀ᵢ)
 - ✅ **Resolución del SECE** [F]·{X} = -{e₀}
 - ✅ **Selección automática de redundantes** con heurística configurable
@@ -424,10 +426,10 @@ pytest --cov=src --cov-report=html
 
 | Caso | GH | Error numérico |
 |------|----|---------------|
-| Viga biempotrada carga puntual (MF) | 3 | < 0.1% |
+| Viga biempotrada carga puntual (MF+MD) | 3 | < 0.1% |
 | Viga biempotrada carga uniforme (MD) | 2 | < 0.01% |
 | Viga simplemente apoyada (MD) | 0 | < 0.01% |
-| Pórtico rectangular (MF+MD) | 3 | < 0.1% |
+| Pórtico biempotrado carga horizontal (MF+MD) | 3 | < 0.1% |
 | Cargas térmicas | — | < 0.5% |
 | Movimientos impuestos | — | < 0.1% |
 
