@@ -21,7 +21,7 @@ from src.domain.model.modelo_estructural import ModeloEstructural
 from src.domain.entities.nudo import Nudo
 from src.domain.entities.barra import Barra
 from src.domain.entities.vinculo import (
-    Empotramiento, ApoyoFijo, Rodillo, Guia
+    Empotramiento, ApoyoFijo, Rodillo, Guia, ResorteElastico
 )
 
 
@@ -734,12 +734,126 @@ class StructureCanvas(QGraphicsView):
                         3, 3
                     )
 
+        elif isinstance(vinculo, ResorteElastico):
+            self._draw_vinculo_resorte(painter, pos, vinculo)
+
+    def _draw_vinculo_resorte(self, painter: QPainter, pos: QPointF, resorte: "ResorteElastico"):
+        """
+        Dibuja un resorte elastico con su simbolo estandar (zigzag).
+
+        - ky > 0: resorte vertical debajo del nudo
+        - kx > 0: resorte horizontal a la derecha del nudo
+        - ktheta > 0: arco de resorte rotacional alrededor del nudo
+        Si hay mas de una componente activa, se dibujan todos.
+        """
+        import math
+
+        def _zigzag_spring(cx: float, cy: float, angulo_deg: float, k_val: float, etiqueta: str):
+            """Dibuja un resorte como zigzag desde (cx,cy) en la dirección angulo_deg."""
+            # Longitud total del resorte en pantalla
+            total = 46
+            seg_inicial = 8
+            seg_final = 8
+            n_dientes = 4
+            ancho_diente = 8
+            alto_diente = (total - seg_inicial - seg_final) / n_dientes
+
+            # Construir puntos en coordenadas locales (eje x = dirección del resorte)
+            pts_local = [(0.0, 0.0), (seg_inicial, 0.0)]
+            for i in range(n_dientes):
+                x = seg_inicial + (i + 0.5) * alto_diente
+                y = ancho_diente * (1 if i % 2 == 0 else -1)
+                pts_local.append((x, y))
+            pts_local.append((seg_inicial + n_dientes * alto_diente, 0.0))
+            pts_local.append((total, 0.0))
+
+            # Rotación: angulo_deg → rad
+            rad = math.radians(angulo_deg)
+            cos_a, sin_a = math.cos(rad), math.sin(rad)
+
+            def to_scene(lx, ly):
+                gx = cx + lx * cos_a - ly * sin_a
+                gy = cy + lx * sin_a + ly * cos_a
+                return QPointF(gx, gy)
+
+            # Dibujar zigzag
+            painter.setPen(QPen(self.COLOR_VINCULO, 2.5))
+            painter.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+            for idx in range(len(pts_local) - 1):
+                p1 = to_scene(*pts_local[idx])
+                p2 = to_scene(*pts_local[idx + 1])
+                painter.drawLine(p1, p2)
+
+            # Placa de apoyo (perpendicular al eje del resorte)
+            placa_half = 10
+            extremo = to_scene(total, 0.0)
+            p_left = QPointF(
+                extremo.x() - placa_half * sin_a,
+                extremo.y() + placa_half * cos_a
+            )
+            p_right = QPointF(
+                extremo.x() + placa_half * sin_a,
+                extremo.y() - placa_half * cos_a
+            )
+            painter.setPen(QPen(self.COLOR_VINCULO, 3))
+            painter.drawLine(p_left, p_right)
+
+            # Hatching detrás de la placa
+            painter.setPen(QPen(self.COLOR_VINCULO, 1.5))
+            n_rayas = 5
+            for j in range(n_rayas):
+                t = (j / (n_rayas - 1)) - 0.5
+                base_x = extremo.x() + t * 2 * placa_half * sin_a
+                base_y = extremo.y() - t * 2 * placa_half * cos_a
+                end_x = base_x + 6 * cos_a - 6 * sin_a
+                end_y = base_y + 6 * sin_a + 6 * cos_a
+                painter.drawLine(QPointF(base_x, base_y), QPointF(end_x, end_y))
+
+            # Etiqueta de rigidez al lado del resorte
+            mid_local_x = total * 0.55
+            offset_perp = 14
+            label_pt = to_scene(mid_local_x, -offset_perp)
+            painter.setFont(QFont("Arial", 7, QFont.Weight.Bold))
+            painter.setPen(QPen(self.COLOR_VINCULO.darker(140)))
+            painter.drawText(label_pt, etiqueta)
+
+        # Dibujar cada componente activa del resorte
+        if resorte.ky > 0:
+            etiq = f"ky={resorte.ky:.0f}" if resorte.ky < 10000 else f"ky={resorte.ky:.2e}"
+            _zigzag_spring(pos.x(), pos.y(), 90, resorte.ky, etiq)   # 90° = abajo
+
+        if resorte.kx > 0:
+            etiq = f"kx={resorte.kx:.0f}" if resorte.kx < 10000 else f"kx={resorte.kx:.2e}"
+            _zigzag_spring(pos.x(), pos.y(), 0, resorte.kx, etiq)    # 0° = derecha
+
+        if resorte.ktheta > 0:
+            # Resorte rotacional: arco semicircular con etiqueta
+            radio = 16
+            painter.setPen(QPen(self.COLOR_VINCULO, 2.5))
+            rect = QRectF(pos.x() - radio, pos.y() - radio, 2 * radio, 2 * radio)
+            painter.drawArc(rect, 30 * 16, 300 * 16)
+            # Flecha al final del arco
+            end_angle = math.radians(30 + 300)
+            tip = pos + QPointF(radio * math.cos(end_angle), radio * math.sin(end_angle))
+            tangent = end_angle - math.pi / 2
+            for sign in (1, -1):
+                painter.drawLine(tip, tip + QPointF(
+                    7 * math.cos(tangent + sign * math.radians(150)),
+                    7 * math.sin(tangent + sign * math.radians(150))
+                ))
+            etiq = f"k={resorte.ktheta:.0f}" if resorte.ktheta < 10000 else f"k={resorte.ktheta:.2e}"
+            painter.setFont(QFont("Arial", 7, QFont.Weight.Bold))
+            painter.setPen(QPen(self.COLOR_VINCULO.darker(140)))
+            painter.drawText(pos + QPointF(radio + 4, -4), etiq)
+
     def _draw_carga(self, painter: QPainter, carga):
         """Dibuja una carga con visualización mejorada."""
         from src.domain.entities.carga import (
             CargaPuntualNudo,
             CargaPuntualBarra,
             CargaDistribuida,
+            CargaTermica,
+            MovimientoImpuesto,
         )
 
         if isinstance(carga, CargaPuntualNudo):
@@ -748,6 +862,10 @@ class StructureCanvas(QGraphicsView):
             self._draw_carga_puntual_barra(painter, carga)
         elif isinstance(carga, CargaDistribuida):
             self._draw_carga_distribuida(painter, carga)
+        elif isinstance(carga, CargaTermica):
+            self._draw_carga_termica(painter, carga)
+        elif isinstance(carga, MovimientoImpuesto):
+            self._draw_carga_movimiento_impuesto(painter, carga)
 
     def _draw_carga_puntual_nudo(self, painter: QPainter, carga):
         """Dibuja una carga puntual en nudo con etiquetas."""
@@ -935,6 +1053,177 @@ class StructureCanvas(QGraphicsView):
             label = f"q₁={carga.q1:.1f}, q₂={carga.q2:.1f} kN/m"
 
         self._draw_load_label(painter, pos_centro, offset_x, offset_y, label)
+
+    def _draw_carga_termica(self, painter: QPainter, carga):
+        """
+        Dibuja una carga termica sobre la barra.
+
+        Convencion visual:
+        - ΔT uniforme positivo (calentamiento): flechas apuntando hacia la barra
+          desde ambos lados (la barra quiere expandirse, los empotramientos lo impiden).
+          Color naranja.
+        - ΔT uniforme negativo (enfriamiento): flechas apuntando hacia afuera.
+          Color azul claro.
+        - Gradiente termico: banda asimetrica sobre/bajo la barra con etiqueta.
+        """
+        import math
+
+        barra = carga.barra
+        if barra is None:
+            return
+
+        pos_i = self._world_to_scene(barra.nudo_i.x, barra.nudo_i.y)
+        pos_j = self._world_to_scene(barra.nudo_j.x, barra.nudo_j.y)
+
+        dx = pos_j.x() - pos_i.x()
+        dy = pos_j.y() - pos_i.y()
+        L_screen = math.hypot(dx, dy)
+        if L_screen < 1.0:
+            return
+
+        angulo_barra = math.atan2(dy, dx)
+        # Perpendicular a la barra (apuntando "arriba" respecto al eje)
+        perp_x = -math.sin(angulo_barra)
+        perp_y = math.cos(angulo_barra)
+
+        # Colores: naranja para calentamiento, azul para enfriamiento
+        COLOR_CALOR = QColor(230, 100, 0)
+        COLOR_FRIO = QColor(50, 100, 220)
+
+        n_flechas = max(3, int(L_screen / 30))
+
+        # --- Componente uniforme ---
+        if abs(carga.delta_T_uniforme) > 1e-9:
+            dt = carga.delta_T_uniforme
+            color_dt = COLOR_CALOR if dt > 0 else COLOR_FRIO
+            # Flechas apuntando hacia la barra (calentamiento → quiere expandirse)
+            # o alejándose (enfriamiento → quiere contraerse)
+            # Dirección de la flecha: hacia la barra si dt > 0
+            sentido = -1.0 if dt > 0 else 1.0   # -1: hacia barra, +1: alejándose
+
+            painter.setPen(QPen(color_dt, 2))
+            offset_perp = 18  # distancia de la punta al eje de la barra
+
+            for k in range(n_flechas):
+                t = (k + 1) / (n_flechas + 1)
+                cx = pos_i.x() + t * dx
+                cy = pos_i.y() + t * dy
+
+                # Dibujar flecha superior e inferior
+                for lado in (1.0, -1.0):
+                    # Punto de inicio (lejos de la barra)
+                    sx = cx + lado * perp_x * offset_perp * (-sentido)
+                    sy = cy + lado * perp_y * offset_perp * (-sentido)
+                    # Punto final (en el eje de la barra)
+                    ex = cx + lado * perp_x * 4
+                    ey = cy + lado * perp_y * 4
+
+                    painter.drawLine(QPointF(sx, sy), QPointF(ex, ey))
+
+                    # Punta de flecha en el extremo
+                    angulo_flecha = math.atan2(ey - sy, ex - sx)
+                    self._draw_small_arrow_head(painter, QPointF(ex, ey), angulo_flecha)
+
+            # Etiqueta
+            mid_x = (pos_i.x() + pos_j.x()) / 2
+            mid_y = (pos_i.y() + pos_j.y()) / 2
+            pos_mid = QPointF(mid_x, mid_y)
+            label = f"DT={dt:+.1f}C"
+            off_x = perp_x * 30
+            off_y = perp_y * 30
+            self._draw_load_label(painter, pos_mid, off_x, off_y, label, color_dt)
+
+        # --- Componente gradiente ---
+        if abs(carga.delta_T_gradiente) > 1e-9:
+            dg = carga.delta_T_gradiente
+            color_g = QColor(180, 60, 180)  # violeta para gradiente
+
+            # Banda diagonal que representa la variación lineal de temperatura
+            # Fibra superior más caliente (dg > 0): traza banda naranja arriba
+            painter.setPen(QPen(color_g, 1.5, Qt.PenStyle.DashLine))
+            offset_banda = 12
+            lado = 1.0 if dg > 0 else -1.0
+
+            p1 = QPointF(
+                pos_i.x() + lado * perp_x * offset_banda,
+                pos_i.y() + lado * perp_y * offset_banda
+            )
+            p2 = QPointF(
+                pos_j.x() - lado * perp_x * offset_banda,
+                pos_j.y() - lado * perp_y * offset_banda
+            )
+            painter.drawLine(pos_i, p1)
+            painter.drawLine(p1, p2)
+            painter.drawLine(p2, pos_j)
+
+            mid_x = (pos_i.x() + pos_j.x()) / 2
+            mid_y = (pos_i.y() + pos_j.y()) / 2
+            pos_mid = QPointF(mid_x, mid_y)
+            label_g = f"grad={dg:+.1f}C"
+            off_x = -perp_x * 28
+            off_y = -perp_y * 28
+            self._draw_load_label(painter, pos_mid, off_x, off_y, label_g, color_g)
+
+    def _draw_carga_movimiento_impuesto(self, painter: QPainter, carga):
+        """
+        Dibuja un movimiento impuesto en el nudo con flecha doble de trazo grueso.
+
+        Convencion visual:
+        - delta_y: flecha vertical doble (abajo si delta_y > 0, arriba si < 0)
+        - delta_x: flecha horizontal doble
+        - delta_theta: arco con doble cabeza
+        Color: purpura para distinguirlo de fuerzas externas.
+        """
+        import math
+
+        nudo = carga.nudo
+        if nudo is None:
+            return
+
+        pos = self._world_to_scene(nudo.x, nudo.y)
+        COLOR_IMP = QColor(120, 0, 200)  # purpura
+        painter.setPen(QPen(COLOR_IMP, 3))
+
+        longitud_flecha = 38
+
+        # Desplazamiento vertical (Y+ = abajo en pantalla)
+        if abs(carga.delta_y) > 1e-12:
+            angulo = 90 if carga.delta_y > 0 else -90
+            self._draw_arrow(painter, pos, angulo, longitud_flecha)
+            # Segunda cabeza en el origen para indicar "impuesto"
+            painter.setPen(QPen(COLOR_IMP, 3))
+            painter.drawEllipse(pos, 4, 4)  # circulo en el nudo
+
+            offset_x = 14
+            offset_y = -20 if carga.delta_y > 0 else 25
+            val_mm = carga.delta_y * 1000
+            self._draw_load_label(painter, pos, offset_x, offset_y,
+                                   f"dy={val_mm:.2f}mm", COLOR_IMP)
+
+        # Desplazamiento horizontal
+        if abs(carga.delta_x) > 1e-12:
+            angulo = 0 if carga.delta_x > 0 else 180
+            self._draw_arrow(painter, pos, angulo, longitud_flecha)
+            painter.setPen(QPen(COLOR_IMP, 3))
+            painter.drawEllipse(pos, 4, 4)
+
+            offset_x = -60 if carga.delta_x > 0 else 45
+            offset_y = -12
+            val_mm = carga.delta_x * 1000
+            self._draw_load_label(painter, pos, offset_x, offset_y,
+                                   f"dx={val_mm:.2f}mm", COLOR_IMP)
+
+        # Rotacion impuesta
+        if abs(carga.delta_theta) > 1e-12:
+            radio = 18
+            antihorario = carga.delta_theta < 0
+            painter.setPen(QPen(COLOR_IMP, 3))
+            self._draw_moment(painter, pos, radio, antihorario)
+            painter.drawEllipse(pos, 4, 4)
+
+            val_mrad = carga.delta_theta * 1000
+            self._draw_load_label(painter, pos, radio + 6, -radio,
+                                   f"dt={val_mrad:.2f}mrad", COLOR_IMP)
 
     def _draw_load_label(self, painter: QPainter, pos: QPointF, offset_x: float,
                          offset_y: float, text: str, color=None):
