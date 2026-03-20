@@ -317,8 +317,10 @@ class MainWindow(QMainWindow):
         self.combo_metodo.setFixedWidth(160)
         self.combo_metodo.setStyleSheet(
             "QComboBox { padding: 3px 6px; border: 1px solid #93c5fd; "
-            "border-radius: 4px; background: white; }"
+            "border-radius: 4px; background: white; color: #1e293b; }"
             "QComboBox:focus { border: 1px solid #2563eb; }"
+            "QComboBox QAbstractItemView { background: white; color: #1e293b; "
+            "selection-background-color: #2563eb; selection-color: white; }"
         )
         toolbar.addWidget(self.combo_metodo)
 

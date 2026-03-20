@@ -909,17 +909,29 @@ class MotorMetodoDeformaciones:
         Returns:
             Lista de advertencias si el equilibrio no se satisface
         """
-        from src.domain.entities.carga import CargaPuntualNudo
+        import math as _math
+        from src.domain.entities.carga import (
+            CargaPuntualNudo, CargaPuntualBarra, CargaDistribuida,
+        )
 
         advertencias: List[str] = []
 
-        # Sumar cargas externas
+        # Sumar cargas externas (todas las tipologías)
         Fx_ext = Fy_ext = Mz_ext = 0.0
         for carga in self.modelo.cargas:
             if isinstance(carga, CargaPuntualNudo) and carga.nudo is not None:
                 Fx_ext += carga.Fx
                 Fy_ext += carga.Fy
                 Mz_ext += carga.Mz
+            elif isinstance(carga, CargaPuntualBarra) and carga.barra is not None:
+                ang = carga.barra.angulo + _math.radians(carga.angulo)
+                Fx_ext += carga.P * _math.cos(ang)
+                Fy_ext += carga.P * _math.sin(ang)
+            elif isinstance(carga, CargaDistribuida) and carga.barra is not None:
+                ang = carga.barra.angulo + _math.radians(carga.angulo)
+                R = carga.resultante
+                Fx_ext += R * _math.cos(ang)
+                Fy_ext += R * _math.sin(ang)
 
         # Sumar reacciones
         Rx_tot = Ry_tot = Mz_tot = 0.0
